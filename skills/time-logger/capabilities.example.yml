@@ -1,0 +1,30 @@
+# time-logger capabilities
+# This file is generated and updated by running "setup" in Claude Code.
+# Last configured: (not yet run)
+
+settings:
+  # Where this repo lives on your machine. Clone to ~/repos/time_logs to use the default.
+  repo_path: ~/repos/time_logs
+
+integrations:
+  # Always available — reads Claude Code JSONL transcripts from ~/.claude/projects/ locally.
+  claude_sessions:
+    enabled: true
+
+  # Requires Slack MCP integration configured in Claude Code.
+  slack:
+    enabled: false
+    user_id: ""  # Your Slack member ID, e.g. U01ABCDE123
+
+  # Requires Google Calendar MCP integration configured in Claude Code.
+  google_calendar:
+    enabled: false
+
+  # Requires gh CLI installed and authenticated via: gh auth login
+  github:
+    enabled: false
+    username: ""  # Auto-populated from gh auth status during setup
+
+  # Requires Granola MCP integration configured in Claude Code.
+  granola:
+    enabled: false
