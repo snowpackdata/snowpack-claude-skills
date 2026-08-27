@@ -180,14 +180,25 @@ there's no operational reality to observe, say so and stop — that's a differen
    Even then, say explicitly why it was skipped in that section rather than silently
    omitting it.
 
-8. **Scale the report to what was actually found.** Zero disagreements and zero
+8. **Write a brief, best-effort description of what this pipeline actually does, at the
+   top of the report.** Synthesize it from everything already read in the steps above —
+   the README, docstrings, CLI help text, code read while reconstructing execution order
+   or building the ERD — this is not a fresh research pass, just a summary of what you
+   already gathered. A few sentences to a short paragraph: what the pipeline is for, and
+   the shape of what it does — not a restatement of every section below it. State plainly
+   that it's inferred from reading, not confirmed with anyone on the team. If the target
+   has essentially no documentation to synthesize from, say that plainly instead of
+   guessing.
+
+9. **Scale the report to what was actually found.** Zero disagreements and zero
    undeclared dependencies means a short report. Several of either means don't compress
    them into one line each — this is where the real risk is.
 
-9. **Write the output doc** (structured, not conversational) using the template below.
-   Name every category the tool didn't check (execution-order, silent-defect,
-   parallel-authority) explicitly rather than letting their absence read as "checked and
-   clean."
+10. **Write the output doc** (structured, not conversational) using the template below —
+    a single `.md` file containing every section, including the process description and
+    the rendered Mermaid diagram, not separate outputs to reassemble by hand. Name every
+    category the tool didn't check (execution-order, silent-defect, parallel-authority)
+    explicitly rather than letting their absence read as "checked and clean."
 
 ## Output template
 
@@ -195,6 +206,13 @@ Write `pipeline-context-report.md` in the target repo (or wherever the user asks
 
 ```markdown
 # Pipeline Context Report — <target>
+
+## What this pipeline does (best-effort synthesis, not verified)
+<a few sentences to a short paragraph: what this pipeline is for and the shape of what it
+does, synthesized from the README/docstrings/CLI help/code already read during this pass --
+not a fresh research pass, and not confirmed with anyone on the team. If there's
+essentially no documentation to synthesize from, say that plainly here instead of
+guessing.>
 
 ## Provenance summary
 <one line, e.g. "3 findings mechanically derived (scan.py) · 5 findings inferred (direct
