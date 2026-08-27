@@ -638,6 +638,13 @@ def collect_declared_facts(root: Path):
             data = load_json(f)
             if _is_dbt_manifest_shape(data):
                 sequences.append(parse_dbt_manifest(f, root, data))
+                # A successfully parsed manifest is a stronger signal than a
+                # bare dbt_project.yml's mere presence -- must set this here
+                # too, not just from detect_stack_markers' file-presence
+                # check, or a repo with a compiled manifest but no project
+                # file alongside it (e.g. only the build artifact is
+                # checked in) would wrongly read as "no framework detected."
+                known_framework_detected = True
                 continue
             fact = parse_json_file(f, root, data=data)
             if fact:
@@ -654,6 +661,7 @@ def collect_declared_facts(root: Path):
             dag_fact = parse_airflow_dag(f, root, text, tree)
             if dag_fact:
                 sequences.append(dag_fact)
+                known_framework_detected = True  # same reasoning as the dbt-manifest case above
 
             if not dagster_hit and DAGSTER_IMPORT_RE.search(text) and DAGSTER_DECORATOR_RE.search(text):
                 stack_findings.append({"category": "orchestration", "signal": "dagster",
