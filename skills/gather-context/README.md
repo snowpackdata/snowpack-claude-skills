@@ -61,7 +61,8 @@ Implements:
   from whatever was read this run, stated as inferred, not verified with anyone on the
   team), followed by every finding and the rendered Mermaid diagram, all in one place —
   never separate outputs to reassemble by hand. Written by default to
-  `~/.gather-context/reports/`, outside the scanned target, so it survives even when the
+  `~/gather-context-reports/` (not dot-prefixed — it's a deliverable, not hidden tool
+  config), outside the scanned target, so it survives even when the
   target itself doesn't (a temporary clone, a CI checkout) — never solely inside the
   thing being scanned.
 

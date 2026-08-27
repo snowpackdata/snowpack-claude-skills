@@ -208,11 +208,14 @@ there's no operational reality to observe, say so and stop — that's a differen
 
 ## Where to write it
 
-Default: `~/.gather-context/reports/<target-basename>/pipeline-context-report.md`
+Default: `~/gather-context-reports/<target-basename>/pipeline-context-report.md`
 (create the directory if it doesn't exist) — never solely inside the target itself, and
 never inside a copy of the target you know will be deleted or is otherwise transient.
 This is a plain local path, not gitignored by anything, because it's not inside any repo
-to begin with.
+to begin with. Deliberately not a dot-directory (`~/.gather-context/`, an earlier version
+of this default) — this holds a deliverable someone wants to read and navigate to, not
+internal tool config, and a leading dot hides it from Finder/Explorer by default, which
+defeats the point.
 
 If the user also wants a copy inside the target repo for convenience (easy to find right
 where they're working, easy to share/commit if they choose to), write one there too — but
@@ -334,12 +337,15 @@ references/frameworks/" or "none">
   yield a comparable scalar. A top-level JSON *list* isn't parsed into `json_configs` at
   all today (`parse_json_file` returns `None` for it) — a real, separate, still-open gap,
   not one this field covers.
-- The report's default location is `~/.gather-context/reports/`, outside the target, on
+- The report's default location is `~/gather-context-reports/`, outside the target, on
   purpose — a report written only inside the scanned target doesn't survive if the target
   is a temporary clone that gets deleted afterward (this happened in practice: a test run
   wrote the report inside a scratch clone, the clone was deleted per its own cleanup step,
   and the report went with it — the only surviving copy was pasted conversation text, not
   a file). Writing outside the target first, and confirming it landed, closes that gap.
+- This directory is deliberately not dot-prefixed (an earlier version used
+  `~/.gather-context/`) — a leading dot hides it from Finder/Explorer by default, which
+  is exactly wrong for a location that holds something a person wants to open and read.
 
 ## Install
 
