@@ -46,6 +46,28 @@ VENV_DIR_RE = re.compile(r"^\.?venv", re.IGNORECASE)
 
 def _is_skip_dir(name: str) -> bool:
     return name in SKIP_DIRS or bool(VENV_DIR_RE.match(name))
+
+
+README_NAME_RE = re.compile(r"^readme(\.\w+)?$", re.IGNORECASE)
+
+
+def find_root_readme(root: Path):
+    """Cheap, structural: does the scanned root have a README file at all?
+    Not a judgment about its content -- just a mechanical pointer so the
+    skill knows to actually read it before concluding an empty
+    declared_sequences means "genuinely no process order exists." A process
+    can be genuinely declared (prose + a linked diagram, e.g.) without being
+    machine-parseable into a graph -- that's a real, distinct middle ground
+    between "uncovered" and "nothing declared," and this script has no way
+    to judge prose content itself, only to point at where it might be."""
+    try:
+        children = list(root.iterdir())
+    except OSError:
+        return None
+    for c in children:
+        if c.is_file() and README_NAME_RE.match(c.name):
+            return str(c.relative_to(root))
+    return None
 CATEGORY_RE = re.compile(r"category=([\w.\-]+)")
 L2_RE = re.compile(r"l2=([\w.\-]+)")
 IDENTIFIER_TOKEN_RE = re.compile(r"[A-Za-z_][\w]*(?:[./][A-Za-z_][\w]*)+")
@@ -172,6 +194,15 @@ def parse_json_file(path: Path, root: Path, data=None):
         "source": str(path.relative_to(root)),
         "kind": "json_config",
         "keys": flat,
+        # A dict whose every value is itself a dict/list (an ID-keyed lookup
+        # table -- a benchmark_lookup.json, an audience_selection.json --
+        # data, not settings) flattens to {} exactly the same as a genuinely
+        # empty config. Without this flag, find_disagreements silently has
+        # nothing to compare on an entire class of repo and "0 disagreements"
+        # reads as checked-and-clean when it's really "nothing was
+        # comparable" -- surfaced explicitly instead (see
+        # json_configs_no_scalar_keys in run_declared_scan).
+        "has_scalar_keys": bool(flat),
         "mtime": path.stat().st_mtime,
     }
 
@@ -700,14 +731,25 @@ def run_declared_scan(root: Path):
     return {
         "root": str(root),
         "declared_facts": {"json_configs": json_facts, "python_modules": python_facts},
+        # Count, not just a flag -- an "N of M had no scalar keys" number
+        # tells the skill how much of find_disagreements' "0 disagreements"
+        # below is a real clean result vs. nothing being comparable at all
+        # (an ID-keyed lookup table -- data, not settings -- flattens to {}
+        # the same as an empty config; see parse_json_file).
+        "json_configs_no_scalar_keys": sum(1 for f in json_facts if not f["has_scalar_keys"]),
         "declared_sequences": sequences,
         "detected_stack": marker_findings + file_stack_findings,
         # Reflects only real, named framework markers (dbt_project.yml,
         # airflow.cfg/dags/, a Dagster/Prefect import+decorator pair) -- a
         # bespoke-scheduler filename/call-pattern guess never sets this true.
         # An empty declared_sequences with this false means "uncovered by
-        # this scan," not "nothing to report" -- see SKILL.md's step 5.
+        # this scan," not "nothing to report" -- see SKILL.md's step 5. But
+        # check root_readme before concluding that: a process can be
+        # genuinely declared in prose/a diagram without being machine-
+        # parseable into a graph -- a real third state, distinct from both
+        # "uncovered" and "nothing declared."
         "known_framework_detected": known_from_markers or known_from_files,
+        "root_readme": find_root_readme(root),
         "release_convention": detect_release_convention(root),
         "disagreements": find_disagreements(json_facts),
         "cross_reference_candidates": find_cross_reference_candidates(python_facts),

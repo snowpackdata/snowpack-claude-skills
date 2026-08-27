@@ -74,7 +74,12 @@ there's no operational reality to observe, say so and stop — that's a differen
      any matching `declared_sequences` entry — that's a disagreement worth surfacing if
      the DAG file doesn't actually wire what the docstring claims.
    - For each `disagreements` entry, state both values plainly; don't guess which one is
-     right.
+     right. Before reporting a low/zero disagreement count as clean, check
+     `json_configs_no_scalar_keys` — a JSON file that's actually an ID-keyed lookup table
+     (a benchmark/audience/score lookup — data, not settings) flattens to no comparable
+     keys at all, the same as a genuinely empty config. If this count is close to (or
+     equal to) the total number of `json_configs`, say so explicitly: "0 disagreements"
+     here means nothing was comparable, not that everything was checked and agreed.
    - For each `cross_reference_candidates` group, actually read both docstrings/modules
      and judge whether they describe the same process. Only report it as a real conflict
      if they do — the script grouped them by name similarity alone, it didn't check
@@ -92,16 +97,28 @@ there's no operational reality to observe, say so and stop — that's a differen
      `note` instead of a `latest_by_convention` (e.g. git-sha-named versions), say
      explicitly that freshness can't be determined from names alone — don't guess.
 
-5. **Read `known_framework_detected` — it's the mechanical trigger for whether an empty
-   `declared_sequences` means "uncovered," "known but no graph available," or "genuinely
-   nothing here." Never let a thin result read as "nothing to report" without checking
-   which of these three it actually is:**
-   - **`known_framework_detected: false`** — no dbt/Airflow/Dagster/Prefect marker was
-     found anywhere in the tree (at most a low/medium-confidence `bespoke-scheduler` guess
-     in `detected_stack`). An empty `declared_sequences` here means the stack is
-     **uncovered**, not that the pipeline has no execution order — this is the case a
-     bespoke Go scheduler, Temporal, or any other genuinely unsupported stack falls into.
-     Fall through to reading the relevant code/config directly by hand.
+5. **Read `known_framework_detected` and `root_readme` together — they're the mechanical
+   trigger for whether an empty `declared_sequences` means "uncovered," "declared but not
+   parseable," "known but no graph available," or "genuinely nothing here." Never let a
+   thin result read as "nothing to report" without checking which of these four it
+   actually is:**
+   - **`known_framework_detected: false`, and either `root_readme` is `null` or reading it
+     turns up no process description** — no dbt/Airflow/Dagster/Prefect marker anywhere in
+     the tree, and nothing in the repo's own docs describes a process order either. An
+     empty `declared_sequences` here means the stack is **uncovered**, not that the
+     pipeline has no execution order — the case a bespoke Go scheduler, Temporal, or any
+     other genuinely unsupported stack falls into. Fall through to reading the relevant
+     code/config directly by hand.
+   - **`known_framework_detected: false`, but `root_readme` is present and it *does*
+     describe a process order in prose (a workflow narrative, a linked diagram, "first run
+     X then Y")** — this is a real, distinct middle ground: the order **is** declared, the
+     team just never formalized it into anything `scan.py` can parse into a graph. Don't
+     call this "uncovered" (someone did declare it) or "genuinely none" (it exists).
+     Reconstruct the order by hand — the README's prose plus each script's own CLI arg
+     names/docstrings usually correlate directly (an `--audience_json` input arg matching
+     another script's `--output` is a real edge, found by reading, not parsing). Mark it
+     **inferred**, and say explicitly in the report that the process is declared but not
+     mechanically extractable, as its own category — not folded into "uncovered."
    - **`known_framework_detected: true`, but `declared_sequences` is still empty** — a
      real framework marker was found, but this pass has no mechanical graph for it: either
      a `dbt_project.yml` with no committed `manifest.json` (the project exists, nothing
@@ -111,12 +128,13 @@ there's no operational reality to observe, say so and stop — that's a differen
      framework itself is known, there's just no graph available from what's in the repo
      today.
    - **Neither of the above** — `declared_sequences` has real entries (report as usual),
-     or `known_framework_detected` is `false` and a careful look confirms this pipeline
-     genuinely has no scheduler/DAG of any kind (rare; say so plainly).
+     or `known_framework_detected` is `false`, `root_readme` was read and confirmed to
+     describe nothing process-related, and a careful look confirms this pipeline genuinely
+     has no scheduler/DAG of any kind (rare; say so plainly).
 
-   In either of the first two cases, mark anything recovered by hand-reading as
-   **inferred**, not mechanical, in the report (see the provenance summary in the output
-   template) — a completed, lower-confidence finding, never a blocker.
+   In the first three cases, mark anything recovered by hand-reading as **inferred**, not
+   mechanical, in the report (see the provenance summary in the output template) — a
+   completed, lower-confidence finding, never a blocker.
 
 6. **Capture what you learn from that fallback reading, locally.** The moment you
    hand-recover something reusable against an undocumented stack — a scheduler
@@ -164,26 +182,39 @@ same principle, applied to edges instead of bullets.>
 ## Detected stack
 <one entry per detected_stack item: signal, category, confidence, evidence path -- report
 low/medium-confidence bespoke-scheduler entries as candidates to verify, not verdicts>
-<state known_framework_detected plainly (true/false) -- it decides how to read an empty
-Execution order section below>
+<state known_framework_detected plainly (true/false), and root_readme (path or "none") --
+together they decide how to read an empty Execution order section below>
 
-## Execution order (mechanically derived from dbt manifest / Airflow DAG wiring)
-<one entry per declared_sequences item: source, kind, and the execution_order>
+## Execution order
+<one entry per declared_sequences item: source, kind, and the execution_order -- label
+this "mechanically derived from dbt manifest / Airflow DAG wiring" when declared_sequences
+is non-empty>
 <if cycle_detected: true, say so explicitly and show the edges -- do not guess an order>
-<if declared_sequences is empty and known_framework_detected is false: say so explicitly
--- this means "uncovered," not "no order exists" -- and report what fallback reading
-(step 5) found instead, marked inferred>
+<if declared_sequences is empty, known_framework_detected is false, and root_readme is
+null or was read and found to describe no process: say so explicitly -- this means
+"uncovered," not "no order exists" -- and report what fallback reading (step 5) found
+instead, marked inferred>
+<if declared_sequences is empty, known_framework_detected is false, but root_readme (or
+other docs) describes a process order in prose: state plainly that the order is DECLARED
+but not mechanically parseable -- a distinct category from "uncovered." Give the
+reconstructed order (e.g. from CLI arg names correlating across scripts) marked inferred,
+and name the doc it came from.>
 <if declared_sequences is empty and known_framework_detected is true: say which framework
 was found and why no graph is available (no committed manifest, or a framework this pass
 only detects the presence of and doesn't extract -- see references/frameworks/) --
 narrower than "uncovered," but still no mechanical order to report>
-<if declared_sequences is empty, known_framework_detected is false, and a careful look
-confirms there's genuinely no scheduler/DAG at all (rare): "No dbt manifest or DAG wiring
-found -- process order is not declared anywhere parseable; treat it as tribal knowledge
-(see gaps below) rather than assuming there's none.">
+<if declared_sequences is empty, known_framework_detected is false, root_readme was read
+and confirmed to describe nothing process-related, and a careful look confirms there's
+genuinely no scheduler/DAG at all (rare): "No dbt manifest or DAG wiring found, and
+nothing in the repo's own docs describes a process order either -- treat it as tribal
+knowledge (see gaps below) rather than assuming there's none.">
 
 ## Declared, and disagreeing
 <one entry per real disagreement, both values shown, no guess at which is right>
+<if json_configs_no_scalar_keys is close to or equal to the total json_configs count: say
+so explicitly -- "0 disagreements" here means nothing was comparable (the json files are
+ID-keyed lookup tables/data, not scalar config), not that everything was checked and
+agreed>
 
 ## Externalized dependencies found (backward-trace)
 <one entry per confirmed undeclared_dependency, after filtering false positives>
@@ -226,6 +257,16 @@ references/frameworks/" or "none">
   `serverless.yml` schedule trigger) or SaaS/reverse-ETL integrations referenced only by
   name in config/env vars. Say so if either seems relevant to the target; don't let their
   absence from `detected_stack` read as "checked and not present."
+- `root_readme` only checks the scanned root's immediate directory for a file named
+  `README*` — it says nothing about the content, and it's not recursive (a nested suite's
+  own README, e.g. `some_suite/README.md`, doesn't set this). Its only job is to remind the
+  interpretation step to actually go read it before concluding a process order is
+  genuinely undeclared.
+- `json_configs_no_scalar_keys` catches one specific shape (a dict whose every value is
+  itself a dict/list — an ID-keyed lookup table), not every way a JSON file can fail to
+  yield a comparable scalar. A top-level JSON *list* isn't parsed into `json_configs` at
+  all today (`parse_json_file` returns `None` for it) — a real, separate, still-open gap,
+  not one this field covers.
 
 ## Install
 
