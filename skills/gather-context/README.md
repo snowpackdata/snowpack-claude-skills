@@ -56,11 +56,14 @@ Implements:
   named-but-unreachable external system (a SaaS tool, a microservice, another repo
   mentioned by name in docs/config). See
   [`references/erd-provenance.md`](./references/erd-provenance.md) for the convention.
-- **One `.md` file, every time** — the report is always a single file: a plain-language
-  summary of what the pipeline actually does (synthesized from whatever was read this
-  run, stated as inferred, not verified with anyone on the team), followed by every
-  finding and the rendered Mermaid diagram, all in one place — never separate outputs to
-  reassemble by hand.
+- **One `.md` file, every time, written where it survives** — the report is always a
+  single file: a plain-language summary of what the pipeline actually does (synthesized
+  from whatever was read this run, stated as inferred, not verified with anyone on the
+  team), followed by every finding and the rendered Mermaid diagram, all in one place —
+  never separate outputs to reassemble by hand. Written by default to
+  `~/.gather-context/reports/`, outside the scanned target, so it survives even when the
+  target itself doesn't (a temporary clone, a CI checkout) — never solely inside the
+  thing being scanned.
 
 Explicitly NOT implemented (see [`references/taxonomy.md`](./references/taxonomy.md)):
 execution-based checks for emergent/silent-latent-defect complexity, and

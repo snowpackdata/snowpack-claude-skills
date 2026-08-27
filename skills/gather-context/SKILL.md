@@ -198,11 +198,32 @@ there's no operational reality to observe, say so and stop — that's a differen
     a single `.md` file containing every section, including the process description and
     the rendered Mermaid diagram, not separate outputs to reassemble by hand. Name every
     category the tool didn't check (execution-order, silent-defect, parallel-authority)
-    explicitly rather than letting their absence read as "checked and clean."
+    explicitly rather than letting their absence read as "checked and clean." Write it to
+    a stable local path *outside* the scanned target (see "Where to write it" below) —
+    the target itself may not persist (a temporary clone, a CI checkout, a directory
+    someone deletes right after this runs), and the report must survive regardless.
+    Confirm the file actually exists at that path — read it back, don't just trust the
+    write command's exit code — before doing anything else that could remove the target
+    (deleting a clone, etc.).
+
+## Where to write it
+
+Default: `~/.gather-context/reports/<target-basename>/pipeline-context-report.md`
+(create the directory if it doesn't exist) — never solely inside the target itself, and
+never inside a copy of the target you know will be deleted or is otherwise transient.
+This is a plain local path, not gitignored by anything, because it's not inside any repo
+to begin with.
+
+If the user also wants a copy inside the target repo for convenience (easy to find right
+where they're working, easy to share/commit if they choose to), write one there too — but
+only after the external copy above is confirmed to exist, and only into a location the
+target's own `.gitignore` covers: append the path to `.gitignore` the same way
+`.pipeline-context-learnings/` is handled (see step 6), and say out loud that you did.
+Never let the report land somewhere it could show up in a diff of the client's own repo.
 
 ## Output template
 
-Write `pipeline-context-report.md` in the target repo (or wherever the user asks):
+Write `pipeline-context-report.md` per "Where to write it" above:
 
 ```markdown
 # Pipeline Context Report — <target>
@@ -313,6 +334,12 @@ references/frameworks/" or "none">
   yield a comparable scalar. A top-level JSON *list* isn't parsed into `json_configs` at
   all today (`parse_json_file` returns `None` for it) — a real, separate, still-open gap,
   not one this field covers.
+- The report's default location is `~/.gather-context/reports/`, outside the target, on
+  purpose — a report written only inside the scanned target doesn't survive if the target
+  is a temporary clone that gets deleted afterward (this happened in practice: a test run
+  wrote the report inside a scratch clone, the clone was deleted per its own cleanup step,
+  and the report went with it — the only surviving copy was pasted conversation text, not
+  a file). Writing outside the target first, and confirming it landed, closes that gap.
 
 ## Install
 
