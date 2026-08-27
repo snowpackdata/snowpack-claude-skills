@@ -1,14 +1,60 @@
 # gather-context
 
-Systematic context-gathering for an unfamiliar operational pipeline, built from [A
-Taxonomy for Systematic Pipeline Context-Gathering](./references/taxonomy.md) (condensed
-copy; the source is an internal Snowpack doc).
+Systematic context-gathering for an unfamiliar operational pipeline — parses what's
+declared/parseable, traces backward from downstream consumers to catch what nothing
+upstream declares, and turns everything else into a short, specific list of questions for
+a person, instead of an open-ended interview.
 
 Consultants ramping up on an unfamiliar client pipeline can't get business and process
-context fast enough — gathering it today is ad hoc detective work. This splits the
-problem the way the taxonomy does: some context is mechanically recoverable (declared,
-parseable), some requires querying a third-party tool instead of reading code, and some
-can't be automated at all and needs a specific, narrow question to a person.
+context fast enough — gathering it today is ad hoc detective work. This exists to make
+that first pass fast, honest about what it actually checked vs. inferred, and repeatable.
+
+## Access
+
+```bash
+npx skills add snowpackdata/snowpack-claude-skills --skill gather-context
+```
+
+`npx skills add` will ask whether to install globally (available in every Claude Code
+project) or just the current one — global is the usual choice for a general-purpose tool
+like this. Manual fallback, works regardless of install method:
+
+```bash
+cp -r skills/gather-context ~/.claude/skills/
+```
+
+## Usage
+
+In a Claude Code session, just describe what you want in plain language — no slash
+command needed:
+
+> "Gather context on the pipeline at `~/repos/some-client-pipeline`"
+> "Map this pipeline"
+> "What's declared vs. tribal here?"
+
+From there, Claude will:
+1. Run the mechanical scan (`scripts/scan.py`) against the target — dbt/Airflow
+   execution order, config disagreements, a stack fingerprint, freshness/release-pointer
+   checks.
+2. Read whatever it needs to (READMEs, code, CLI help) to interpret that raw output and
+   reconstruct anything mechanically unparseable — including a process the team declared
+   in prose but never formalized into a graph.
+3. Ask whether you have any downstream consumer artifacts on hand (a dashboard query, a
+   reverse-ETL config) to check for undeclared dependencies. Optional, but worth having
+   ready — without one, that risk is reported as unknown, not clean.
+4. Write one file, `pipeline-context-report.md` — a plain-language summary of what the
+   pipeline does up top, every finding below it, and a rendered Mermaid diagram, all in
+   one place. Written by default to `~/gather-context-reports/<target-name>/`, outside
+   the scanned target, so it survives even if the target itself is a temporary clone.
+
+You can also run the mechanical half directly, no Claude session needed — useful for
+scripting or a quick sanity check, though the skill is what actually turns this into
+something readable:
+
+```bash
+python3 scripts/scan.py declared <path>
+python3 scripts/scan.py backward-trace <path> --consumers <file> [<file> ...]
+```
 
 ## Scope of this build
 
@@ -23,6 +69,10 @@ Implements:
   detected by content shape rather than filename, topologically sorted into an actual run
   order. A real cycle is flagged explicitly rather than silently mis-ordered. This is
   mechanically derived from dependency edges, not a docstring-based guess.
+- **Stack-identification pass** — a confidence-tagged fingerprint (language manifests,
+  dbt/Airflow/Dagster/Prefect markers, a corroborated bespoke-scheduler heuristic) that
+  decides whether an empty execution-order result means "uncovered," "declared but not
+  mechanically parseable," "known framework, no graph available," or genuinely nothing.
 - **Declared-parse** — JSON configs, Python module docstrings/CLI args, and
   release/versioning conventions detected structurally rather than by one pipeline's
   naming: any directory whose children mostly match a known versioning scheme (ISO
@@ -30,7 +80,9 @@ Implements:
   plus any pointer symlink inside it under any name (`current`, `latest`, `stable`,
   `prod`, ...).
 - **Disagreement detection** — same config key, different value, across non-versioned
-  declared sources.
+  declared sources, with an explicit flag for JSON files that are actually ID-keyed
+  lookup tables (data, not settings) so a "0 disagreements" result never silently means
+  "nothing was comparable."
 - **Freshness checks** — does the pointer symlink target the most recent sibling by that
   convention's own ordering (numeric-aware for semver/build numbers, not a naive string
   sort — `v9.0.0` correctly sorts before `v10.0.0`). Git-sha-named versions are flagged
@@ -46,48 +98,20 @@ Implements:
   covered by `scan.py` or `references/frameworks/`, the skill falls through to reading
   code directly instead of reporting a false-clean scan, and captures what it learns
   locally (gitignored, in the target repo) rather than blocking on a round-trip back
-  here. See SKILL.md's "Capturing learnings" step.
-- **Provenance-split reporting** — every finding in the output report is marked
+  here.
+- **Provenance-split reporting** — every finding, and every edge in the ERD, is marked
   mechanical vs. inferred vs. unresolved gap.
 - **ERD / data-flow diagram, built by default** — every report includes a Mermaid diagram
-  unless there's genuinely nothing to draw, following the same provenance split as the
-  rest of the report: solid edges from mechanically-derived `declared_sequences`, dashed
-  edges from inferred/backward-trace findings, and explicit black-box nodes for any
-  named-but-unreachable external system (a SaaS tool, a microservice, another repo
-  mentioned by name in docs/config). See
+  unless there's genuinely nothing to draw: solid edges from mechanically-derived
+  execution order, dashed edges from inferred/backward-trace findings, and explicit
+  black-box nodes for any named-but-unreachable external system (a SaaS tool, a
+  microservice, another repo mentioned by name in docs/config). See
   [`references/erd-provenance.md`](./references/erd-provenance.md) for the convention.
-- **One `.md` file, every time, written where it survives** — the report is always a
-  single file: a plain-language summary of what the pipeline actually does (synthesized
-  from whatever was read this run, stated as inferred, not verified with anyone on the
-  team), followed by every finding and the rendered Mermaid diagram, all in one place —
-  never separate outputs to reassemble by hand. Written by default to
-  `~/gather-context-reports/` (not dot-prefixed — it's a deliverable, not hidden tool
-  config), outside the scanned target, so it survives even when the
-  target itself doesn't (a temporary clone, a CI checkout) — never solely inside the
-  thing being scanned.
 
 Explicitly NOT implemented (see [`references/taxonomy.md`](./references/taxonomy.md)):
 execution-based checks for emergent/silent-latent-defect complexity, and
 parallel-authority diffing across two simultaneously-live systems. The skill states
 plainly when it hasn't checked them rather than letting a clean scan imply it did.
-
-## Use it
-
-```
-python3 scripts/scan.py declared <path>
-python3 scripts/scan.py backward-trace <path> --consumers <file> [<file> ...]
-```
-
-Or just ask Claude to "gather context on this pipeline" — the `gather-context` skill
-runs both, reads the output, filters false positives, and writes a structured report.
-
-## Install
-
-```bash
-npx skills add snowpackdata/snowpack-claude-skills --skill gather-context
-```
-
-Manual fallback (always works): `cp -r skills/gather-context ~/.claude/skills/`.
 
 ## Author
 
