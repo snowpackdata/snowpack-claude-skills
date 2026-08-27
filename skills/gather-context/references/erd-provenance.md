@@ -1,10 +1,11 @@
 # ERD / data-flow diagram — provenance convention
 
-This skill does not generate an ERD/data-flow diagram automatically today — building one
-is real, per-pipeline work an agent does by hand from a `gather-context` run's findings.
-This file is the format to follow whenever one gets built, so the visual language doesn't
-get reinvented per engagement, and so a wrong hand-drawn edge never reads as authoritative
-as a real one.
+This skill builds an ERD/data-flow diagram by default, as a standard part of every
+`gather-context` report (see SKILL.md step 7) — not a special request, and skipped only
+when there's genuinely nothing to draw. Building it is still real, per-pipeline judgment
+work (there's no script that draws it — see "What this is not" below), so the diagram
+still needs its own visual language, applied consistently, so a wrong hand-drawn edge
+never reads as authoritative as a real one.
 
 ## Why this exists
 
@@ -50,9 +51,16 @@ A "near-zero mechanical" count is itself a finding worth stating plainly in the
 surrounding report — it means the stack wasn't covered by an existing framework
 reference (see `references/frameworks/`), not that nothing was found.
 
+## Format
+
+Write it as a Mermaid diagram (a ` ```mermaid ` fence) embedded directly in the report's
+"ERD / data-flow diagram" section — plain text, renders natively wherever the report is
+viewed (GitHub, an editor, a Claude artifact), no extra tooling or rendering step needed.
+
 ## What this is not
 
 This is a documentation convention, not a rendering pipeline — there's no script that
 draws the diagram for you. `scan.py`'s output (`declared_sequences`) gives you the solid
-edges directly; everything else is manual, same as the rest of this skill's judgment
+edges directly; everything else — including deciding the diagram is worth building at all
+in the rare skip case — is manual judgment, same as the rest of this skill's judgment
 layer.

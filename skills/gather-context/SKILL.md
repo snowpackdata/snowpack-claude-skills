@@ -1,6 +1,6 @@
 ---
 name: gather-context
-description: Run systematic context-gathering against an operational pipeline — parse declared artifacts, backward-trace consumer dependencies, and surface tribal/motivational/ownership gaps as a confirm-or-correct list. Triggers on "gather pipeline context", "map this pipeline", "what's declared vs. tribal here", "run the context taxonomy on this repo", or when onboarding onto an unfamiliar client pipeline.
+description: Run systematic context-gathering against an operational pipeline — parse declared artifacts, backward-trace consumer dependencies, surface tribal/motivational/ownership gaps as a confirm-or-correct list, and produce a provenance-annotated data-flow diagram by default. Triggers on "gather pipeline context", "map this pipeline", "what's declared vs. tribal here", "run the context taxonomy on this repo", or when onboarding onto an unfamiliar client pipeline.
 ---
 
 # Gather Context
@@ -156,11 +156,35 @@ there's no operational reality to observe, say so and stop — that's a differen
      table/field names, business logic specifics) first, since a promoted reference is
      shared across every future engagement this skill runs against.
 
-7. **Scale the report to what was actually found.** Zero disagreements and zero
+7. **Build a data-flow diagram as a standard part of every report — not a special
+   request, not something to wait to be asked for.** Draw it from what steps 4–6 already
+   produced, following the convention in
+   [`references/erd-provenance.md`](./references/erd-provenance.md):
+   - **Solid edges** — straight from `declared_sequences` (a real dbt/Airflow edge).
+   - **Dashed edges** — the order reconstructed in step 5's fallback reading (the
+     "declared but not parseable" and "uncovered" cases), and any confirmed
+     `undeclared_dependencies` from backward-trace.
+   - **Black-box nodes** — any named-but-unreachable external system found while
+     reading — a SaaS tool, a microservice, a repo mentioned by name in docs/config that
+     this run didn't have access to (e.g. a README pointing at a deployment stack or an
+     orchestration definition that lives in a different repo). Draw it explicitly, never
+     drop it silently.
+   - **A provenance-count banner** as the first line, per the convention doc.
+
+   Write it as a Mermaid diagram (a ` ```mermaid ` fence) embedded directly in the report
+   under the "ERD / data-flow diagram" section below — plain text, renders natively
+   wherever the report is viewed, no extra tooling needed.
+
+   Skip only when there's truly nothing to draw — a single, self-contained script with
+   zero `declared_sequences`, zero backward-trace hits, and no inferred edges from step 5.
+   Even then, say explicitly why it was skipped in that section rather than silently
+   omitting it.
+
+8. **Scale the report to what was actually found.** Zero disagreements and zero
    undeclared dependencies means a short report. Several of either means don't compress
    them into one line each — this is where the real risk is.
 
-8. **Write the output doc** (structured, not conversational) using the template below.
+9. **Write the output doc** (structured, not conversational) using the template below.
    Name every category the tool didn't check (execution-order, silent-defect,
    parallel-authority) explicitly rather than letting their absence read as "checked and
    clean."
@@ -176,8 +200,8 @@ Write `pipeline-context-report.md` in the target repo (or wherever the user asks
 <one line, e.g. "3 findings mechanically derived (scan.py) · 5 findings inferred (direct
 code/doc reading) · 2 gaps unresolved". Every section below should trace back to one of
 these buckets -- never let an inferred finding read with the same certainty as a
-mechanical one. See references/erd-provenance.md if a diagram is also produced --
-same principle, applied to edges instead of bullets.>
+mechanical one. The same split applies to the ERD below, per references/erd-provenance.md
+-- same principle, applied to edges instead of bullets.>
 
 ## Detected stack
 <one entry per detected_stack item: signal, category, confidence, evidence path -- report
@@ -224,10 +248,14 @@ agreed>
 <current-vs-latest-dated-release flags, or "no dated-release convention found">
 
 ## ERD / data-flow diagram
-<if one was built this run: link it and confirm it follows the provenance convention in
-references/erd-provenance.md (solid vs. dashed edges, black-box nodes, a provenance-count
-banner). If none was built: "No ERD produced this run -- see references/erd-provenance.md
-if one becomes worth building.">
+<a Mermaid diagram (```mermaid fence), built by default per step 7: solid edges from
+declared_sequences, dashed edges from step 5's inferred order and any confirmed
+backward-trace hits, black-box nodes for named-but-unreachable external systems, a
+provenance-count banner as the first line -- see references/erd-provenance.md.>
+<only if truly nothing to draw (a single self-contained script, zero declared_sequences,
+zero backward-trace hits, zero inferred edges): "No ERD produced this run -- nothing to
+draw: <one-line reason>." Never the default outcome; always name the reason when it
+happens.>
 
 ## Gaps needing a person to close (confirm or correct)
 - [ ] <specific question 1>

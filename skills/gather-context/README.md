@@ -47,10 +47,15 @@ Implements:
   code directly instead of reporting a false-clean scan, and captures what it learns
   locally (gitignored, in the target repo) rather than blocking on a round-trip back
   here. See SKILL.md's "Capturing learnings" step.
-- **Provenance-split reporting** — every finding in the output report, and any ERD/data-
-  flow diagram built alongside it, is marked mechanical vs. inferred vs. unresolved gap.
-  See [`references/erd-provenance.md`](./references/erd-provenance.md) for the diagram
-  convention specifically.
+- **Provenance-split reporting** — every finding in the output report is marked
+  mechanical vs. inferred vs. unresolved gap.
+- **ERD / data-flow diagram, built by default** — every report includes a Mermaid diagram
+  unless there's genuinely nothing to draw, following the same provenance split as the
+  rest of the report: solid edges from mechanically-derived `declared_sequences`, dashed
+  edges from inferred/backward-trace findings, and explicit black-box nodes for any
+  named-but-unreachable external system (a SaaS tool, a microservice, another repo
+  mentioned by name in docs/config). See
+  [`references/erd-provenance.md`](./references/erd-provenance.md) for the convention.
 
 Explicitly NOT implemented (see [`references/taxonomy.md`](./references/taxonomy.md)):
 execution-based checks for emergent/silent-latent-defect complexity, and
