@@ -323,26 +323,44 @@ class Collector:
                     res["stray"].append(b)
         return res
 
-    # ---- coverage: repos you can see vs repos the Claude app can see -----
-    def coverage_gap(self, repos_scanned: list[str]) -> dict:
-        """Laptop only: compare /user/repos to the Claude GitHub App installation repos."""
-        gap = {"checked": False, "you_only": [], "reason": None}
-        try:
-            insts = self.t.get("user/installations?per_page=100")
-        except ApiError as e:
-            gap["reason"] = f"installations not readable ({e.status})"
+    # ---- coverage: repos you can see vs repos Claude can see --------------
+    def coverage_gap(self, my_repos: list[str]) -> dict:
+        """Diff every repo you can reach against the repos Claude has access to.
+
+        There is no user-token API for this: GET /user/installations requires a
+        GitHub App user-to-server token, which `gh auth login` never issues (it is
+        the wrong token type, not a missing scope). So the Claude-visible list is
+        supplied as a file, which a Claude Code web session can write in one step:
+            claude-repos.txt  <- one owner/name per line, from the list_repos tool
+        """
+        gap = {"checked": False, "you_only": [], "claude_only": [], "reason": None,
+               "source": None}
+        path = Path(os.environ.get("WIP_GITHUB_CLAUDE_REPOS")
+                    or Path.home() / ".config" / "wip-github" / "claude-repos.txt")
+        if not path.exists():
+            gap["reason"] = (f"no Claude repo list at {path} — in a Claude Code web session, "
+                             "run the list_repos tool and save each full_name there")
             return gap
-        claude = [i for i in insts.get("installations", []) if "claude" in (i.get("app_slug") or "").lower()]
+        claude = {l.strip() for l in path.read_text().splitlines()
+                  if l.strip() and not l.startswith("#")}
         if not claude:
-            gap["reason"] = "no Claude GitHub App installation visible to this token"
+            gap["reason"] = f"{path} is empty"
             return gap
-        app_repos: set[str] = set()
-        for inst in claude:
-            for r in self.t.get_all(f"user/installations/{inst['id']}/repositories", cap=500):
-                app_repos.add(r["full_name"])
+        mine = set(my_repos)
         gap["checked"] = True
-        gap["you_only"] = sorted(r for r in repos_scanned if r not in app_repos)
+        gap["source"] = str(path)
+        gap["you_only"] = sorted(mine - claude)
+        gap["claude_only"] = sorted(claude - mine)
         return gap
+
+    def all_my_repos(self) -> list[str]:
+        """Every non-archived repo the token can reach, ignoring recency."""
+        try:
+            repos = self.t.get_all(
+                "user/repos?affiliation=owner,collaborator,organization_member", cap=800)
+        except ApiError:
+            return []
+        return [r["full_name"] for r in repos if not r.get("archived")]
 
 
 # --------------------------------------------------------------------------- #
@@ -480,7 +498,10 @@ def render_md(d: dict, limit: int = 10) -> str:
         L += [f"- {r}" for r in sorted(cov["unreachable"])]
     if cov.get("you_only"):
         L.append(f"\n### You can see these, Claude cannot ({len(cov['you_only'])})")
-        L += [f"- {r}" for r in cov["you_only"]]
+        L += capped([f"- {r}" for r in cov["you_only"]], limit)
+    if cov.get("claude_only"):
+        L.append(f"\n### Claude can see these, your token cannot ({len(cov['claude_only'])})")
+        L += capped([f"- {r}" for r in cov["claude_only"]], limit)
     if d["notes"]:
         L.append("\n<sub>" + " · ".join(d["notes"]) + "</sub>")
     L.append(f"\n<sub>{m['api_calls']} API calls · repos from {m['repo_source']}</sub>")
@@ -498,6 +519,7 @@ def main() -> int:
     ap.add_argument("--max-branches", type=int, default=80, help="branches inspected per repo")
     ap.add_argument("--no-branches", action="store_true", help="skip branch scan (much cheaper)")
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--no-coverage", action="store_true", help="skip the Claude-access coverage diff")
     ap.add_argument("--limit", type=int, default=10, help="max lines per section in markdown (0 = all)")
     args = ap.parse_args()
 
@@ -512,6 +534,7 @@ def main() -> int:
 
     found = col.via_search()
     mode = "search API"
+    explicit_scope = source in ("--repos", "$WIP_GITHUB_REPOS") or source.startswith("/")
     open_heads: dict[str, set[str]] = {}
     if found is None:
         mode = "per-repo scan (search API blocked)"
@@ -526,6 +549,12 @@ def main() -> int:
                 for k in found:
                     found[k].extend(r[k])
                 open_heads[repo] = r["open_pr_heads"]
+
+    # An explicitly supplied repo list scopes the readout; the search API ignores it.
+    if found is not None and explicit_scope and repos:
+        allow = set(repos)
+        for key in ("mine", "review_requested", "involved", "issues_mine", "issues_assigned"):
+            found[key] = [i for i in found[key] if i["repo"] in allow]
 
     # enrich the PRs that matter (mine + review requested)
     with cf.ThreadPoolExecutor(max_workers=args.workers) as ex:
@@ -547,8 +576,9 @@ def main() -> int:
         col.notes.append(f"{branches['skipped']} branches skipped (cap {args.max_branches}/repo)")
 
     coverage = {"unreachable": sorted(col.unreachable), "unreachable_detail": col.unreachable}
-    if mode == "search API":
-        coverage.update(col.coverage_gap(scan_targets))
+    if not args.no_coverage:
+        reachable = col.all_my_repos() if mode == "search API" else repos
+        coverage.update(col.coverage_gap(reachable or scan_targets))
 
     data = {
         "meta": {"user": me, "date": NOW.strftime("%Y-%m-%d %H:%MZ"), "mode": mode,

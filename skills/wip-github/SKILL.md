@@ -81,10 +81,16 @@ Rules for those two lines:
 | Branches without a PR | branches with your commits, ahead of default, no open PR | branches with a closed PR are counted, not listed; merged ones counted as deletable |
 | Issues | opened by you, assigned to you | capped at `--limit` (default 10) |
 | Not scanned | 403 per repo | web sessions only |
-| You can see, Claude cannot | `user/repos` minus Claude App installation repos | laptop only, needs `read:user` scope |
+| You can see, Claude cannot | `user/repos` minus `~/.config/wip-github/claude-repos.txt` | file is written from a web session's `list_repos`; section skipped when absent |
 
 Flags: `--limit N` lines per section (0 = all), `--max-branches N` per repo (default 80),
-`--days N` repo recency for auto-discovery, `--workers N`.
+`--days N` repo recency for auto-discovery, `--no-coverage` to skip the access diff,
+`--workers N`.
+
+To fill the coverage diff, run the `list_repos` MCP tool in a Claude Code **web** session
+and write each `full_name` to `~/.config/wip-github/claude-repos.txt`, one per line. There
+is no API for this: `/user/installations` requires a GitHub App user-to-server token, which
+`gh auth login` cannot issue.
 
 ## Known limits
 

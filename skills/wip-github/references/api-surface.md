@@ -14,7 +14,7 @@ web session (bound token) and reasoned from GitHub docs for the laptop path.
 | `GET /notifications`, `/users/{u}/events` | yes | **403** |
 | `GET /repos/{o}/{r}/...` | yes | yes, only for repos attached to the session |
 | Attach more repos | n/a | `add_repo` MCP tool, per-repo permission prompt |
-| List repos Claude can see | `GET /user/installations/{id}/repositories` | `list_repos` MCP tool |
+| List repos Claude can see | not possible (see below) | `list_repos` MCP tool |
 
 Consequence: on the web, **discovery is an MCP step, collection is the script**. On a
 laptop the script does both.
@@ -80,11 +80,34 @@ uses ~2% of core. Not a concern unless run in a tight loop.
 
 ## "You can see these, Claude cannot"
 
-Laptop only. The script lists `user/installations`, picks the one whose `app_slug`
-contains `claude`, lists its repositories, and diffs against the repos it scanned. Needs
-the `read:user` scope on the `gh` token (`gh auth refresh -s read:user`). If no Claude
-installation is visible the section is omitted and a note explains why. Untested against
-a live installation as of this writing because the web token cannot read installations.
+**Verified 2026-09-02, and the obvious approach does not work.** `GET /user/installations`
+(and every other `/user/installations/*` route) answers:
+
+> You must authenticate with an access token authorized to a GitHub App in order to
+> list installations — HTTP 403
+
+That needs a GitHub App *user-to-server* token. `gh auth login` issues an OAuth token
+(`gho_…`), which is the wrong token **type**, not a token missing a scope. Adding
+`read:user` does not help; there is no scope that makes an OAuth token satisfy it.
+
+So the Claude-visible repo list is supplied as a file:
+
+```
+~/.config/wip-github/claude-repos.txt      # or $WIP_GITHUB_CLAUDE_REPOS
+```
+
+One `owner/name` per line, `#` comments allowed. In a Claude Code web session, run the
+`list_repos` tool of the claude-code-remote MCP server and save every `full_name` there.
+The script then reports both directions:
+
+- **You can see these, Claude cannot** — repos to attach with `add_repo`, or to check by
+  hand. Measured on this account: 37 repos, including one holding a 552-day-old review
+  request that the web session could not see at all.
+- **Claude can see these, your token cannot** — usually means the file is stale.
+
+Refresh the file whenever repo access changes; nothing expires it automatically. Without
+the file the section is skipped and the readout says where to create it. `--no-coverage`
+skips the check (it costs a few `user/repos` pages).
 
 ## Safety on client machines
 
