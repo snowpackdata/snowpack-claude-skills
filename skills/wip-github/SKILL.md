@@ -85,7 +85,12 @@ Rules for those two lines:
 
 Flags: `--limit N` lines per section (0 = all), `--max-branches N` per repo (default 80),
 `--days N` repo recency for auto-discovery, `--no-coverage` to skip the access diff,
-`--workers N`.
+`--no-search` to force the per-repo path, `--workers N`.
+
+Output is deterministic: two runs on unchanged data are byte-identical apart from the
+timestamp and call count. Every list is stalest-first with ties broken by repo then
+number, so truncation always keeps the most-stale items. Both collection paths are
+cross-checked to return the same PRs and issues for the same repo set.
 
 To fill the coverage diff, run the `list_repos` MCP tool in a Claude Code **web** session
 and write each `full_name` to `~/.config/wip-github/claude-repos.txt`, one per line. There

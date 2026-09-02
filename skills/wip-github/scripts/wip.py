@@ -59,9 +59,17 @@ class Transport:
         if self.mode == "curl" and not (os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")):
             sys.exit("wip-github: need `gh` on PATH or GH_TOKEN/GITHUB_TOKEN set")
         self.calls = 0
+        self.retries = 2
+        self.backoff = 1.5
 
-    def get(self, path: str):
-        """GET an API path (relative, may include query). Returns parsed JSON."""
+    RETRY_STATUS = {429, 500, 502, 503, 504}
+
+    def get(self, path: str, _attempt: int = 0):
+        """GET an API path (relative, may include query). Returns parsed JSON.
+
+        Retries transient failures (5xx, secondary rate limits) with fixed backoff
+        so a flaky call cannot silently drop a repo from the readout.
+        """
         self.calls += 1
         if self.mode == "gh":
             proc = subprocess.run(
@@ -89,6 +97,9 @@ class Transport:
             else:
                 body = chunk if i == len(chunks) - 1 else body
         if status == 0 and proc.returncode != 0:
+            if _attempt < self.retries:
+                time.sleep(self.backoff * (_attempt + 1))
+                return self.get(path, _attempt + 1)
             raise ApiError(0, (proc.stderr or raw).strip()[:300], path)
         try:
             data = json.loads(body) if body.strip() else None
@@ -96,11 +107,20 @@ class Transport:
             data = None
         if status >= 400:
             msg = (data or {}).get("message", body.strip()[:300]) if isinstance(data, dict) else body.strip()[:300]
+            transient = status in self.RETRY_STATUS or (status == 403 and "rate limit" in msg.lower())
+            if transient and _attempt < self.retries:
+                time.sleep(self.backoff * (_attempt + 1))
+                return self.get(path, _attempt + 1)
             raise ApiError(status, msg, path)
         return data
 
     def get_all(self, path: str, cap: int = 300):
-        """Paginate a list endpoint (per_page=100) up to `cap` items."""
+        """Paginate a list endpoint (per_page=100) up to `cap` items.
+
+        Sets self.truncated when the cap cut the result short, so callers can
+        fall back rather than silently work from a partial list.
+        """
+        self.truncated = False
         out, page = [], 1
         sep = "&" if "?" in path else "?"
         while len(out) < cap:
@@ -111,6 +131,8 @@ class Transport:
             if len(chunk) < 100:
                 break
             page += 1
+        else:
+            self.truncated = True
         return out[:cap]
 
 
@@ -206,10 +228,13 @@ class Collector:
         for name, r in (("mine", mine), ("review", review_req), ("involved", involved)):
             if r.get("incomplete_results"):
                 self.notes.append(f"search '{name}' returned incomplete results")
+        # involves:@me overlaps review-requested; a PR must appear in exactly one bucket
+        claimed = {(repo_of(i), i["number"]) for i in mine["items"] + review_req["items"]}
         return {
             "mine": [self.shape_pr(i) for i in mine["items"]],
             "review_requested": [self.shape_pr(i) for i in review_req["items"]],
-            "involved": [self.shape_pr(i) for i in involved["items"]],
+            "involved": [self.shape_pr(i) for i in involved["items"]
+                         if (repo_of(i), i["number"]) not in claimed],
             "issues_mine": [self.shape_issue(i) for i in issues_mine["items"]],
             "issues_assigned": [self.shape_issue(i) for i in issues_assigned["items"]],
         }
@@ -224,7 +249,7 @@ class Collector:
     # ---- fallback path: per-repo REST -------------------------------------
     def scan_repo_prs_issues(self, repo: str) -> dict:
         out = {"mine": [], "review_requested": [], "involved": [], "issues_mine": [], "issues_assigned": [],
-               "open_pr_heads": set(), "ok": True}
+               "ok": True}
         try:
             prs = self.t.get_all(f"repos/{repo}/pulls?state=open", cap=200)
         except ApiError as e:
@@ -234,7 +259,6 @@ class Collector:
         for pr in prs:
             pr.setdefault("base", {"repo": {"full_name": repo}})
             p = self.shape_pr(pr)
-            out["open_pr_heads"].add(p["head"])
             if p["author"] == self.me:
                 out["mine"].append(p)
             elif self.me in p["requested_reviewers"]:
@@ -261,7 +285,29 @@ class Collector:
         return out
 
     # ---- branches (always per-repo; no search API for refs) --------------
-    def scan_repo_branches(self, repo: str, open_heads: set[str], max_branches: int) -> dict:
+    def branch_pr_index(self, repo: str) -> tuple[dict, bool]:
+        """head-ref -> {'open'|'merged'|'closed'} for every PR in the repo.
+
+        One paginated fetch replaces a per-branch PR lookup. Returns (index,
+        complete); when incomplete the caller falls back to a per-branch query
+        rather than trusting a partial index.
+        """
+        index: dict[str, set[str]] = {}
+        try:
+            prs = self.t.get_all(f"repos/{repo}/pulls?state=all", cap=500)
+            complete = not self.t.truncated
+        except ApiError:
+            return {}, False
+        for pr in prs:
+            ref = (pr.get("head") or {}).get("ref")
+            if not ref:
+                continue
+            state = ("open" if pr["state"] == "open"
+                     else "merged" if pr.get("merged_at") else "closed")
+            index.setdefault(ref, set()).add(state)
+        return index, complete
+
+    def scan_repo_branches(self, repo: str, max_branches: int) -> dict:
         res = {"stray": [], "merged_count": 0, "closed_pr_count": 0, "skipped": 0}
         try:
             meta = self.t.get(f"repos/{repo}")
@@ -274,9 +320,26 @@ class Collector:
         if len(branches) > max_branches:
             res["skipped"] = len(branches) - max_branches
             branches = branches[:max_branches]
-        cands = [b["name"] for b in branches if b["name"] != default and b["name"] not in open_heads]
 
-        def compare(name: str):
+        index, complete = self.branch_pr_index(repo)
+        owner = repo.split("/")[0]
+
+        def pr_states(ref: str) -> set[str]:
+            if ref in index or complete:
+                return index.get(ref, set())
+            try:  # index was truncated and this ref was not in it
+                prs = self.t.get(f"repos/{repo}/pulls?state=all&head={owner}:{ref}&per_page=10")
+            except ApiError:
+                return set()
+            return {("open" if p["state"] == "open"
+                     else "merged" if p.get("merged_at") else "closed") for p in prs}
+
+        cands = [b["name"] for b in branches if b["name"] != default]
+
+        def classify(name: str):
+            states = pr_states(name)
+            if "open" in states:
+                return None  # already surfaced as a PR
             try:
                 c = self.t.get(f"repos/{repo}/compare/{default}...{name}?per_page=50")
             except ApiError:
@@ -284,43 +347,30 @@ class Collector:
             commits = c.get("commits", [])
             authors = {(cm.get("author") or {}).get("login") for cm in commits}
             authors.discard(None)
-            head_date = (commits[-1]["commit"]["committer"]["date"] if commits else None)
-            return {
-                "repo": repo, "branch": name, "ahead": c.get("ahead_by", 0), "behind": c.get("behind_by", 0),
-                "authors": sorted(authors), "updated_days": age_days(head_date),
+            if c.get("ahead_by", 0) == 0:
+                return ("merged", None) if (self.me in authors or not authors) else None
+            if self.me not in authors:
+                return None
+            if states:
+                return ("closed_pr", None)
+            return ("stray", {
+                "repo": repo, "branch": name, "ahead": c.get("ahead_by", 0),
+                "behind": c.get("behind_by", 0), "authors": sorted(authors),
+                "updated_days": age_days(commits[-1]["commit"]["committer"]["date"] if commits else None),
                 "url": f"https://github.com/{repo}/tree/{name}",
-            }
-
-        owner = repo.split("/")[0]
-
-        def had_pr(b: dict) -> dict:
-            """Was there ever a PR for this branch? A closed one means it was abandoned, not forgotten."""
-            try:
-                prs = self.t.get(f"repos/{repo}/pulls?state=all&head={owner}:{b['branch']}&per_page=5")
-            except ApiError:
-                prs = []
-            closed = [x for x in prs if x["state"] == "closed"]
-            if closed:
-                b["closed_pr"] = closed[0]["number"]
-                b["closed_pr_merged"] = bool(closed[0].get("merged_at"))
-            return b
+            })
 
         with cf.ThreadPoolExecutor(max_workers=self.workers) as ex:
-            mine = []
-            for r in ex.map(compare, cands):
+            for r in ex.map(classify, cands):
                 if r is None:
                     continue
-                if r["ahead"] == 0:
-                    if self.me in r["authors"] or not r["authors"]:
-                        res["merged_count"] += 1
-                    continue
-                if self.me in r["authors"]:
-                    mine.append(r)
-            for b in ex.map(had_pr, mine):
-                if b.get("closed_pr"):
+                kind, payload = r
+                if kind == "merged":
+                    res["merged_count"] += 1
+                elif kind == "closed_pr":
                     res["closed_pr_count"] += 1
                 else:
-                    res["stray"].append(b)
+                    res["stray"].append(payload)
         return res
 
     # ---- coverage: repos you can see vs repos Claude can see --------------
@@ -394,22 +444,21 @@ def pick_next(d: dict) -> dict | None:
     mine = d["prs"]["mine"]
     ready = [p for p in mine if not p["draft"]]
     drafts = [p for p in mine if p["draft"]]
-    by_age = lambda xs: sorted(xs, key=lambda x: -(x.get("updated_days") or 0))  # noqa: E731
     rules = [
         ("changes requested on your PR", [p for p in ready if p.get("review") == "changes_requested"]),
-        ("your review is requested", by_age(d["prs"]["review_requested"])),
+        ("your review is requested", d["prs"]["review_requested"]),
         ("your PR has merge conflicts", [p for p in ready if p.get("mergeable_state") == "dirty"]),
         ("your PR has failing checks", [p for p in ready if p.get("mergeable_state") == "unstable"]),
         ("approved and clean: merge it", [p for p in ready if p.get("review") == "approved" and p.get("mergeable_state") == "clean"]),
-        ("ready PR with no review yet: ask for one", by_age([p for p in ready if p.get("review") == "none"])),
-        ("oldest ready PR", by_age(ready)),
-        ("oldest draft: finish or close", by_age(drafts)),
-        ("stalest branch without a PR", by_age(d["branches"]["stray"])),
-        ("oldest issue you opened", by_age(d["issues"]["mine"])),
+        ("ready PR with no review yet: ask for one", [p for p in ready if p.get("review") == "none"]),
+        ("oldest ready PR", ready),
+        ("oldest draft: finish or close", drafts),
+        ("stalest branch without a PR", d["branches"]["stray"]),
+        ("oldest issue you opened", d["issues"]["mine"]),
     ]
     for reason, items in rules:
         if items:
-            return {"reason": reason, "item": items[0]}
+            return {"reason": reason, "item": order(items)[0]}
     return None
 
 
@@ -417,9 +466,16 @@ def pick_next(d: dict) -> dict | None:
 # render
 # --------------------------------------------------------------------------- #
 STATE_ICON = {"clean": "clean", "dirty": "CONFLICT", "unstable": "CI failing", "blocked": "blocked",
-              "behind": "behind base", "unknown": "?", None: "?"}
+              "behind": "behind base", "unknown": "?"}
 REVIEW_ICON = {"changes_requested": "changes requested", "approved": "approved", "commented": "commented",
                "none": "no review", "unknown": "?"}
+
+
+def order(items: list[dict]) -> list[dict]:
+    """Stalest first, with a total order so runs are byte-identical."""
+    return sorted(items, key=lambda x: (-(x.get("updated_days") or 0),
+                                        x.get("repo", ""),
+                                        x.get("number") or x.get("branch") or ""))
 
 
 def short(repo: str) -> str:
@@ -429,7 +485,7 @@ def short(repo: str) -> str:
 def pr_line(p: dict, show_state=True) -> str:
     bits = [f"[{short(p['repo'])}#{p['number']} {p['title']}]({p['url']})"]
     if show_state:
-        st = STATE_ICON.get(p.get("mergeable_state"), "?")
+        st = STATE_ICON.get(p.get("mergeable_state") or "unknown", "?")
         rv = REVIEW_ICON.get(p.get("review"), "?")
         bits.append(f"{st} · {rv}")
     else:
@@ -448,7 +504,10 @@ def capped(lines: list[str], limit: int) -> list[str]:
 def render_md(d: dict, limit: int = 10) -> str:
     L: list[str] = []
     m = d["meta"]
-    L.append(f"## WIP · {m['user']} · {m['date']} · {m['repos_scanned']} repos · {m['mode']}")
+    scope = (f"{m['repos_with_work']} repos with open work"
+             if m["mode"].startswith("search")
+             else f"{m['repos_with_work']} of {m['repos_scanned']} scanned repos have open work")
+    L.append(f"## WIP · {m['user']} · {m['date']} · {scope} · {m['mode']}")
     nxt = d["next"]
     if nxt:
         it = nxt["item"]
@@ -462,22 +521,22 @@ def render_md(d: dict, limit: int = 10) -> str:
         + prs["review_requested"]
     if needs:
         L.append(f"\n### Needs you ({len(needs)})")
-        for p in needs:
+        for p in order(needs):
             tag = "changes requested" if p["author"] == m["user"] else "review requested"
             L.append(pr_line(p, show_state=False).replace("- ", f"- {tag} · ", 1))
 
     ready = [p for p in prs["mine"] if not p["draft"]]
     drafts = [p for p in prs["mine"] if p["draft"]]
     L.append(f"\n### My PRs · ready ({len(ready)})")
-    L += capped([pr_line(p) for p in sorted(ready, key=lambda p: p["updated_days"] or 0)], limit * 2) or ["- none"]
+    L += capped([pr_line(p) for p in order(ready)], limit * 2) or ["- none"]
     L.append(f"\n### My PRs · draft ({len(drafts)})")
-    L += capped([pr_line(p) for p in sorted(drafts, key=lambda p: p["updated_days"] or 0)], limit) or ["- none"]
+    L += capped([pr_line(p) for p in order(drafts)], limit) or ["- none"]
 
     if prs["involved"]:
         L.append(f"\n### Watching · reviewed or assigned, not mine ({len(prs['involved'])})")
-        L += [pr_line(p, show_state=False) for p in prs["involved"]]
+        L += capped([pr_line(p, show_state=False) for p in order(prs["involved"])], limit)
 
-    stray = sorted(br["stray"], key=lambda b: b["updated_days"] or 0)
+    stray = order(br["stray"])
     extras = []
     if br["merged_count"]:
         extras.append(f"{br['merged_count']} merged, deletable")
@@ -490,7 +549,7 @@ def render_md(d: dict, limit: int = 10) -> str:
     if iss["mine"] or iss["assigned"]:
         L.append(f"\n### Issues · opened by me ({len(iss['mine'])}) · assigned to me ({len(iss['assigned'])})")
         L += capped([f"- [{short(i['repo'])}#{i['number']} {i['title']}]({i['url']}) · {i['updated_days']}d"
-                     for i in sorted(iss["mine"] + iss["assigned"], key=lambda i: i["updated_days"] or 0)], limit)
+                     for i in order(iss["mine"] + iss["assigned"])], limit)
 
     cov = d["coverage"]
     if cov["unreachable"]:
@@ -519,6 +578,8 @@ def main() -> int:
     ap.add_argument("--max-branches", type=int, default=80, help="branches inspected per repo")
     ap.add_argument("--no-branches", action="store_true", help="skip branch scan (much cheaper)")
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--no-search", action="store_true",
+                    help="skip the search API and scan repo by repo (what a bound session does)")
     ap.add_argument("--no-coverage", action="store_true", help="skip the Claude-access coverage diff")
     ap.add_argument("--limit", type=int, default=10, help="max lines per section in markdown (0 = all)")
     args = ap.parse_args()
@@ -532,12 +593,11 @@ def main() -> int:
     col = Collector(t, me, args.days, args.workers)
     repos, source = discover_repos(t, args, args.days)
 
-    found = col.via_search()
+    found = None if args.no_search else col.via_search()
     mode = "search API"
     explicit_scope = source in ("--repos", "$WIP_GITHUB_REPOS") or source.startswith("/")
-    open_heads: dict[str, set[str]] = {}
     if found is None:
-        mode = "per-repo scan (search API blocked)"
+        mode = "per-repo scan" + ("" if args.no_search else " (search API blocked)")
         if not repos:
             sys.exit("wip-github: search API unavailable and no repo list. Pass --repos, set "
                      "$WIP_GITHUB_REPOS, or write ~/.config/wip-github/repos.txt")
@@ -548,7 +608,6 @@ def main() -> int:
                     continue
                 for k in found:
                     found[k].extend(r[k])
-                open_heads[repo] = r["open_pr_heads"]
 
     # An explicitly supplied repo list scopes the readout; the search API ignores it.
     if found is not None and explicit_scope and repos:
@@ -565,9 +624,7 @@ def main() -> int:
     scan_targets = [r for r in repos if r not in col.unreachable]
     if not args.no_branches and scan_targets:
         for repo in scan_targets:
-            heads = open_heads.get(repo) or {p["head"] for p in found["mine"] + found["review_requested"] + found["involved"]
-                                             if p["repo"] == repo and p.get("head")}
-            r = col.scan_repo_branches(repo, heads, args.max_branches)
+            r = col.scan_repo_branches(repo, args.max_branches)
             branches["stray"] += r["stray"]
             branches["merged_count"] += r["merged_count"]
             branches["closed_pr_count"] += r["closed_pr_count"]
@@ -582,7 +639,11 @@ def main() -> int:
 
     data = {
         "meta": {"user": me, "date": NOW.strftime("%Y-%m-%d %H:%MZ"), "mode": mode,
-                 "repos_scanned": len(scan_targets), "repo_source": source, "api_calls": t.calls,
+                 "repos_scanned": len(scan_targets),
+                 "repos_with_work": len({i["repo"] for k in ("mine", "review_requested", "involved")
+                                         for i in found[k]}
+                                        | {i["repo"] for i in found["issues_mine"] + found["issues_assigned"]}
+                                        | {b["repo"] for b in branches["stray"]}), "repo_source": source, "api_calls": t.calls,
                  "transport": t.mode},
         "prs": {"mine": found["mine"], "review_requested": found["review_requested"], "involved": found["involved"]},
         "issues": {"mine": found["issues_mine"], "assigned": found["issues_assigned"]},

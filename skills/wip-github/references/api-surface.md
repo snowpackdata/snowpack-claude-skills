@@ -46,8 +46,27 @@ Branches, per repo (always per repo, there is no search for refs):
 - `repos/{r}/pulls?state=all&head=owner:branch` for each candidate of yours: a closed PR
   means the branch was abandoned deliberately, so it is counted and not listed
 
-Measured: 8 repos, ~250 branches, 36 PRs of yours, 54 issues → ~310 calls, 50s with
-6 workers. `--no-branches` drops that to ~60 calls, ~10s.
+Branch classification uses one `pulls?state=all` fetch per repo (cap 500) to build a
+head-ref index, instead of a PR lookup per branch; if that index is truncated the script
+falls back to a per-branch `head=` query rather than trusting a partial list. A branch
+with an open PR is skipped (already surfaced), a merged one is counted as deletable, one
+with only closed PRs is counted as deliberately abandoned.
+
+Transient failures (5xx, 429, secondary rate limits) retry twice with fixed backoff, so a
+flaky call cannot silently drop a repo.
+
+Measured on a laptop token: 14 active repos, ~250 branches, 36 PRs, 57 issues → 363 calls
+in ~60s with 6 workers. `--no-branches` drops that to ~83 calls, ~16s. The bound-session
+path over 8 repos: ~310 calls, 50s.
+
+## Determinism
+
+Verified by running twice and diffing: identical apart from timestamp and call count.
+Ordering is total — stalest first, ties broken by repo then number — so truncation is
+stable. `involves:@me` overlaps `review-requested:@me`, so the search path de-duplicates
+against the mine/review buckets; without that a PR awaiting your review printed twice.
+The two collection paths were cross-checked on the same four repos and agree exactly on
+authored PRs, review requests, involvement, and issues.
 
 ## Rate limits
 
