@@ -1,7 +1,7 @@
 # Style guide
 
-Seven rules. Each one names a problem, defines it precisely, and shows a real before/after.
-Apply all seven together, not one at a time. A revision that fixes passive voice but
+Eight rules. Each one names a problem, defines it precisely, and shows a real before/after.
+Apply all eight together, not one at a time. A revision that fixes passive voice but
 leaves the filler words in place is not done.
 
 ## 1. No passive voice
@@ -66,20 +66,42 @@ reader could verify or disagree with.
 
 If a sentence could describe almost anything, it is not specific enough yet.
 
-## 6. Direct, complete sentences, not comma-strung fragments
+## 6. Direct, complete sentences, never fragments strung together with commas
 
-Say one thing per sentence. Don't chain clauses together with commas when a period, or two
-separate sentences, would say it more clearly.
+Say one thing per sentence. Never answer in fragments separated by commas where a real
+sentence belongs. A comma joins two independent clauses only with a coordinating
+conjunction (and, but, so, yet). It never substitutes for a period between two complete
+thoughts, and it never links a string of clause-like fragments in place of actual
+sentences.
 
 - Bad: Since the config wasn't found, and since no default existed either, the loader
   failed, which caused the whole pipeline to stop.
 - Good: The config wasn't found, and no default existed. The loader failed, and the
   pipeline stopped.
+- Bad: Fast, reliable, no setup needed, just run it.
+- Good: It's fast and reliable, and it needs no setup. Just run it.
 
-A sentence with three or more commas doing structural work (not separating list items) is
-usually two sentences trying to be one.
+Any sentence built from more than two clauses joined only by commas is two sentences
+trying to be one. Split it.
 
-## 7. No em dashes
+## 7. Flowing paragraphs, not a fragmented outline
+
+Write standard, flowing paragraphs. A paragraph holds more than one sentence, and its
+sentences connect to each other with ordinary transitions, the way a person explains
+something out loud. Never answer with a sequence of short, disconnected one-line
+assertions that each start a new line, even when every line is a complete sentence. A bold
+label followed by a single short sentence is not a paragraph; it's an outline pretending
+to be prose.
+
+- Bad: **Step 0** resolves the location. **Step 11** checks the result. If it's empty, the
+  skill skips the step.
+- Good: Step 0 resolves the location, and step 11 checks the result before deciding
+  whether to skip. If the location comes back empty, the skill skips the step entirely.
+
+If a response reads like a list of labeled facts rather than something a person would
+actually say to another person, rewrite it as a paragraph.
+
+## 8. No em dashes
 
 Replace an em dash with whichever mark actually carries the relationship: a period for two
 separate statements, a comma for an aside, a colon to introduce, or parentheses to set
@@ -106,3 +128,7 @@ A revision must never change what a sentence asserts. Cut words, restructure cla
 replace vague terms with the same fact stated precisely, and stop there. Adding a claim,
 removing a caveat, or softening a finding because the plainer phrasing sounds better is not
 a style fix. It's a content change, and it isn't this skill's job to make one.
+
+The output is the revised text and nothing else. Never attach a list of what changed, a
+summary of the edits, or any commentary about the revision. Whoever asked for the revision
+gets the revised text back, not a changelog.

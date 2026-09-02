@@ -1,12 +1,12 @@
 # plain-style
 
 A line-level revision pass for drafted text: cuts passive voice, filler words, redundant
-phrases, throat-clearing openers, vague language, comma-strung fragments, and em dashes,
-replacing each with direct, specific, complete-sentence prose. It never changes what a
-sentence asserts, only how it reads.
+phrases, throat-clearing openers, vague language, comma-strung fragments, fragmented
+outlines standing in for real paragraphs, and em dashes, replacing each with direct,
+specific, flowing prose. It never changes what a sentence asserts, only how it reads.
 
 Built to be used two ways: directly, on a file or pasted text, and as a subagent other
-skills dispatch to from their own final drafting step, so the same seven rules apply
+skills dispatch to from their own final drafting step, so the same eight rules apply
 consistently everywhere instead of getting redefined per skill.
 
 ## Access
@@ -40,12 +40,14 @@ From another skill's own instructions, as a final drafting step:
 See [`SKILL.md`](./SKILL.md) for the exact dispatch contract and the bootstrap step that
 installs the bundled subagent.
 
-## The seven rules
+## The eight rules
 
 See [`references/style-guide.md`](./references/style-guide.md) for the full guide with
 before/after examples. In short: no passive voice, no filler words, no redundant phrases,
 no throat-clearing sentences, specific language instead of vague language, direct complete
-sentences instead of comma-strung fragments, and no em dashes.
+sentences instead of comma-strung fragments, standard flowing paragraphs instead of a
+fragmented outline of one-line assertions, and no em dashes. The output is always the
+revised text alone, never a summary of what changed.
 
 Explicitly out of scope: code blocks, file paths, identifiers, diagrams, data tables, and
 any notice marked as fixed or legal. Those get reproduced exactly, never revised.

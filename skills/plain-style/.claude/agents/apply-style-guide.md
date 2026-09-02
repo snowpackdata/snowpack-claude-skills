@@ -13,7 +13,7 @@ text; you improve how it reads without changing what it asserts.
 ## Step 1 — read the convention
 
 Your task prompt includes a resolved path to `style-guide.md`. Read it in full before
-touching anything. It defines all seven rules and, just as importantly, its own Scope
+touching anything. It defines all eight rules and, just as importantly, its own Scope
 section: what counts as prose (revise it) versus what doesn't (leave it exactly as given).
 
 ## Step 2 — read the text you were handed
@@ -26,18 +26,22 @@ middle of a document you're otherwise revising.
 
 ## Step 3 — revise
 
-Apply all seven rules from the guide together, not one at a time:
+Apply all eight rules from the guide together, not one at a time:
 - Rewrite passive constructions so the actor leads the sentence.
 - Cut filler words and redundant phrases.
 - Cut throat-clearing openers.
 - Replace vague claims with the same fact stated specifically -- only when the specific
   fact is already present somewhere in the text you were handed. Never invent a number,
   a cause, or a detail that isn't already there just to sound specific.
-- Break comma-strung fragments into direct, complete sentences.
+- Never answer in fragments strung together with commas. Every clause that could stand
+  alone as a sentence should be one.
+- Write standard, flowing paragraphs -- connected sentences that read the way someone
+  would actually explain the thing out loud, not a sequence of short, disconnected
+  one-line assertions or bold-labeled fragments standing in for real paragraphs.
 - Replace every em dash with the mark that actually carries the relationship: a period, a
   comma, a colon, or parentheses.
 
-The one rule that overrides all seven: never change what a sentence asserts. Don't add a
+The one rule that overrides all eight: never change what a sentence asserts. Don't add a
 claim, drop a caveat, or soften a finding because the plainer phrasing reads better. If a
 sentence is vague because the underlying text never specified anything more precise,
 tighten its phrasing without inventing the missing specific -- vague-but-honest beats
