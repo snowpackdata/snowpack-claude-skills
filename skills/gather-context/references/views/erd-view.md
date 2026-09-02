@@ -1,11 +1,18 @@
 # ERD / data-flow diagram — provenance convention
 
+One of several view conventions in `references/views/` (see also
+[`taxonomy-view.md`](./taxonomy-view.md)) — each defines the visual grammar for one way of
+rendering the findings `gather-context` already gathered. This is the default view: an
+execution-order/dependency graph. Rendering it is delegated to the `visualize-erd`
+subagent (see `.claude/agents/visualize-erd.md`); SKILL.md step 7 decides which view(s) a
+run needs and dispatches to the matching agent(s), rather than rendering inline.
+
 This skill builds an ERD/data-flow diagram by default, as a standard part of every
-`gather-context` report (see SKILL.md step 7) — not a special request, and skipped only
-when there's genuinely nothing to draw. Building it is still real, per-pipeline judgment
-work (there's no script that draws it — see "What this is not" below), so the diagram
-still needs its own visual language, applied consistently, so a wrong hand-drawn edge
-never reads as authoritative as a real one.
+`gather-context` report — not a special request, and skipped only when there's genuinely
+nothing to draw. Building it is still real, per-pipeline judgment work (there's no script
+that draws it — see "What this is not" below), so the diagram still needs its own visual
+language, applied consistently, so a wrong hand-drawn edge never reads as authoritative as
+a real one.
 
 ## Why this exists
 
