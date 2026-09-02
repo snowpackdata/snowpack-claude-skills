@@ -207,7 +207,9 @@ there's no operational reality to observe, say so and stop — that's a differen
      - *For `taxonomy-view.md`*: this needs a read `scan.py` doesn't do — go find each
        category rows get sorted into (per pipeline stage) and its isolation rule (a
        `WHERE`/`CASE WHEN`, join condition, dimension flag, or timestamp window), reading
-       compiled model SQL, metric/semantic-layer definitions, and docs. Tag each one
+       compiled model SQL, metric/semantic-layer definitions, and docs. Frame each category
+       around a concrete business scenario, not an abstract label — see `taxonomy-view.md`'s
+       "Framing the output" section before assembling this. Tag each one
        mechanical (rule read directly from code/config) or inferred (concluded from other
        reading), note anything referenced only by name with no discoverable rule as a
        black-box category, and note anything filtered out entirely before the next stage
@@ -272,7 +274,7 @@ there's no operational reality to observe, say so and stop — that's a differen
 
 ## Where to write it
 
-Default: `~/gather-context-reports/<target-basename>/pipeline-context-report.md`
+Default: `~/gather-context-reports/<target-basename>/process_context_report.md`
 (create the directory if it doesn't exist) — never solely inside the target itself, and
 never inside a copy of the target you know will be deleted or is otherwise transient.
 This is a plain local path, not gitignored by anything, because it's not inside any repo
@@ -290,10 +292,14 @@ Never let the report land somewhere it could show up in a diff of the client's o
 
 ## Output template
 
-Write `pipeline-context-report.md` per "Where to write it" above:
+Write `process_context_report.md` per "Where to write it" above:
 
 ```markdown
-# Pipeline Context Report — <target>
+**Internal Snowpack use only — do not share directly with the client.** This report may
+contain unfiltered tribal/motivational/ownership gaps, candid disagreement findings, and
+inferred judgment calls not yet vetted for external framing.
+
+# Process Context Report — <target>
 
 ## What this pipeline does (best-effort synthesis, not verified)
 <a few sentences to a short paragraph: what this pipeline is for and the shape of what it
