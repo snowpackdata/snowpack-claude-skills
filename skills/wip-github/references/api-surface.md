@@ -59,6 +59,14 @@ Measured on a laptop token: 14 active repos, ~250 branches, 36 PRs, 57 issues �
 in ~60s with 6 workers. `--no-branches` drops that to ~83 calls, ~16s. The bound-session
 path over 8 repos: ~310 calls, 50s.
 
+## Self-test
+
+`wip.py --selftest` exercises the pure logic offline: total ordering (including ties and
+missing dates), `pick_next` rule precedence, truncation math, rendering with unknown or
+missing merge state, and bound-error classification. No network, no auth, exit 1 on
+failure. It was mutation-checked — removing the ordering tie-breaker and swapping two
+`pick_next` rules each make it fail — so it is not a rubber stamp.
+
 ## Determinism
 
 Verified by running twice and diffing: identical apart from timestamp and call count.

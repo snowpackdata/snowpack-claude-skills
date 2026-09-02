@@ -87,6 +87,11 @@ Flags: `--limit N` lines per section (0 = all), `--max-branches N` per repo (def
 `--days N` repo recency for auto-discovery, `--no-coverage` to skip the access diff,
 `--no-search` to force the per-repo path, `--workers N`.
 
+`python3 "$WIP" --selftest` runs 20 offline logic checks (ordering, rule precedence,
+truncation, rendering, error classification) with no network or auth, and exits non-zero
+on failure. Run it after editing the script, and on a client machine to sanity-check the
+install before pointing it at their org.
+
 Output is deterministic: two runs on unchanged data are byte-identical apart from the
 timestamp and call count. Every list is stalest-first with ties broken by repo then
 number, so truncation always keeps the most-stale items. Both collection paths are

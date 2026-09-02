@@ -567,6 +567,90 @@ def render_md(d: dict, limit: int = 10) -> str:
     return "\n".join(L)
 
 
+
+# --------------------------------------------------------------------------- #
+# offline self-test: exercises the pure logic with no network
+# --------------------------------------------------------------------------- #
+def selftest() -> int:
+    fails: list[str] = []
+
+    def check(name, got, want):
+        if got != want:
+            fails.append(f"{name}\n    got  {got!r}\n    want {want!r}")
+
+    pr = lambda repo, n, d, **kw: {  # noqa: E731
+        "repo": repo, "number": n, "title": f"t{n}", "url": f"u{n}", "author": "me",
+        "draft": False, "updated_days": d, "mergeable_state": "clean", "review": "none", **kw}
+
+    # ordering is total and stalest-first; ties break by repo then number
+    items = [pr("b/x", 2, 10), pr("a/x", 9, 10), pr("a/x", 1, 10), pr("a/x", 3, 99)]
+    check("order", [(i["repo"], i["number"]) for i in order(items)],
+          [("a/x", 3), ("a/x", 1), ("a/x", 9), ("b/x", 2)])
+    check("order is stable under input shuffle",
+          [i["number"] for i in order(list(reversed(items)))],
+          [i["number"] for i in order(items)])
+    check("order tolerates None age", [i["number"] for i in order([pr("a/x", 1, None), pr("a/x", 2, 5)])], [2, 1])
+
+    # pick_next rule precedence
+    base = {"prs": {"mine": [], "review_requested": [], "involved": []},
+            "issues": {"mine": [], "assigned": []}, "branches": {"stray": []}}
+    d = json.loads(json.dumps(base))
+    d["prs"]["mine"] = [pr("a/x", 1, 5, review="changes_requested"), pr("a/x", 2, 900)]
+    check("changes-requested wins over age", pick_next(d)["item"]["number"], 1)
+
+    d = json.loads(json.dumps(base))
+    d["prs"]["mine"] = [pr("a/x", 1, 5, review="changes_requested")]
+    d["prs"]["review_requested"] = [pr("a/x", 2, 1, author="other")]
+    check("changes-requested outranks review-requested", pick_next(d)["item"]["number"], 1)
+
+    d = json.loads(json.dumps(base))
+    d["prs"]["mine"] = [pr("a/x", 1, 5, mergeable_state="dirty"), pr("a/x", 2, 5, review="approved")]
+    check("conflict outranks approved", pick_next(d)["item"]["number"], 1)
+
+    d = json.loads(json.dumps(base))
+    d["prs"]["mine"] = [pr("a/x", 1, 3, draft=True)]
+    d["branches"]["stray"] = [{"repo": "a/x", "branch": "b", "updated_days": 900, "ahead": 1, "behind": 0, "url": "u"}]
+    check("draft outranks stray branch", pick_next(d)["item"].get("number"), 1)
+
+    check("empty state has no next", pick_next(json.loads(json.dumps(base))), None)
+
+    # truncation
+    check("capped keeps limit + marker", len(capped([f"- {i}" for i in range(20)], 5)), 6)
+    check("capped counts remainder", capped([f"- {i}" for i in range(20)], 5)[-1],
+          "- … +15 more (use --limit 0 for all)")
+    check("capped no-ops under limit", capped(["- a"], 5), ["- a"])
+    check("capped 0 disables", len(capped([f"- {i}" for i in range(20)], 0)), 20)
+
+    # rendering: no crash on unknown/missing state, links well-formed
+    d = json.loads(json.dumps(base))
+    d["prs"]["mine"] = [pr("a/x", 1, 5, mergeable_state=None, review="unknown"), pr("a/x", 2, 6, draft=True)]
+    d["meta"] = {"user": "me", "date": "d", "mode": "search API", "repos_scanned": 1,
+                 "repos_with_work": 1, "repo_source": "test", "api_calls": 0, "transport": "gh"}
+    d["branches"] = {"stray": [], "merged_count": 0, "closed_pr_count": 0, "skipped": 0}
+    d["coverage"] = {"unreachable": [], "unreachable_detail": {}}
+    d["notes"] = []
+    d["next"] = pick_next(d)
+    out = render_md(d, limit=10)
+    check("renders unknown state", "?" in out, True)
+    check("renders both buckets", ("ready (1)" in out and "draft (1)" in out), True)
+    check("no literal None in output", "None" in out, False)
+
+    # helpers
+    check("repo_of from search item", repo_of({"repository_url": f"{API}/repos/o/r"}), "o/r")
+    check("repo_of from pr object", repo_of({"base": {"repo": {"full_name": "o/r"}}}), "o/r")
+    check("age_days None", age_days(None), None)
+    check("bound error detected", is_bound_error(ApiError(403, "sessions are bound to their configured repositories", "p")), True)
+    check("normal 403 is not a bound error", is_bound_error(ApiError(403, "Forbidden", "p")), False)
+
+    if fails:
+        print(f"selftest: {len(fails)} FAILED\n")
+        for f in fails:
+            print("  " + f)
+        return 1
+    print("selftest: all checks passed")
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # main
 # --------------------------------------------------------------------------- #
@@ -578,11 +662,15 @@ def main() -> int:
     ap.add_argument("--max-branches", type=int, default=80, help="branches inspected per repo")
     ap.add_argument("--no-branches", action="store_true", help="skip branch scan (much cheaper)")
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--selftest", action="store_true",
+                    help="run offline logic checks (no network, no auth) and exit")
     ap.add_argument("--no-search", action="store_true",
                     help="skip the search API and scan repo by repo (what a bound session does)")
     ap.add_argument("--no-coverage", action="store_true", help="skip the Claude-access coverage diff")
     ap.add_argument("--limit", type=int, default=10, help="max lines per section in markdown (0 = all)")
     args = ap.parse_args()
+    if args.selftest:
+        return selftest()
 
     t = Transport()
     try:
