@@ -31,6 +31,7 @@ command needed:
 > "Gather context on the pipeline at `~/repos/some-client-pipeline`"
 > "Map this pipeline"
 > "What's declared vs. tribal here?"
+> "Trace how this business logic/metric definition is implemented across these models"
 
 From there, Claude will:
 1. Run the mechanical scan (`scripts/scan.py`) against the target — dbt/Airflow
@@ -42,8 +43,12 @@ From there, Claude will:
 3. Ask whether you have any downstream consumer artifacts on hand (a dashboard query, a
    reverse-ETL config) to check for undeclared dependencies. Optional, but worth having
    ready — without one, that risk is reported as unknown, not clean.
-4. Write one file, `pipeline-context-report.md` — a plain-language summary of what the
-   pipeline does up top, every finding below it, and a rendered Mermaid diagram, all in
+4. Decide which diagram(s) the request actually needs — an execution-order ERD by
+   default, or a business-category taxonomy view when that's the real question — and
+   dispatch the rendering to that view's subagent (see
+   [`references/views/`](./references/views/)).
+5. Write one file, `pipeline-context-report.md` — a plain-language summary of what the
+   pipeline does up top, every finding below it, and the rendered diagram(s), all in
    one place. Written by default to `~/gather-context-reports/<target-name>/`, outside
    the scanned target, so it survives even if the target itself is a temporary clone.
 
@@ -99,14 +104,24 @@ Implements:
   code directly instead of reporting a false-clean scan, and captures what it learns
   locally (gitignored, in the target repo) rather than blocking on a round-trip back
   here.
-- **Provenance-split reporting** — every finding, and every edge in the ERD, is marked
-  mechanical vs. inferred vs. unresolved gap.
-- **ERD / data-flow diagram, built by default** — every report includes a Mermaid diagram
-  unless there's genuinely nothing to draw: solid edges from mechanically-derived
-  execution order, dashed edges from inferred/backward-trace findings, and explicit
-  black-box nodes for any named-but-unreachable external system (a SaaS tool, a
-  microservice, another repo mentioned by name in docs/config). See
-  [`references/erd-provenance.md`](./references/erd-provenance.md) for the convention.
+- **Provenance-split reporting** — every finding, and every node/edge in every diagram, is
+  marked mechanical vs. inferred vs. unresolved gap.
+- **View-agnostic diagramming, built by default** — the skill's own judgment layer stops
+  at gathering and interpreting findings; drawing them is delegated to view-specific
+  subagents (`.claude/agents/visualize-*`), one per convention doc in
+  [`references/views/`](./references/views/):
+  - [`erd-view.md`](./references/views/erd-view.md) — the default: an execution-order
+    dependency graph, solid edges from mechanically-derived execution order, dashed edges
+    from inferred/backward-trace findings, explicit black-box nodes for any
+    named-but-unreachable external system.
+  - [`taxonomy-view.md`](./references/views/taxonomy-view.md) — for a different question
+    entirely: how rows get classified into business categories, and whether that
+    classification holds across pipeline stages. Same solid/dashed provenance discipline,
+    applied to categories and their isolation rules instead of dependency edges.
+  
+  Every report includes at least one diagram unless there's genuinely nothing to draw for
+  that view. Adding a new view later means adding a new convention doc + subagent pair,
+  not changing how the skill itself gathers or interprets findings.
 
 Explicitly NOT implemented (see [`references/taxonomy.md`](./references/taxonomy.md)):
 execution-based checks for emergent/silent-latent-defect complexity, and

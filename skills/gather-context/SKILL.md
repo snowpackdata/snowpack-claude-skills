@@ -1,6 +1,6 @@
 ---
 name: gather-context
-description: Run systematic context-gathering against an operational pipeline — parse declared artifacts, backward-trace consumer dependencies, surface tribal/motivational/ownership gaps as a confirm-or-correct list, and produce a provenance-annotated data-flow diagram by default. Triggers on "gather pipeline context", "map this pipeline", "what's declared vs. tribal here", "run the context taxonomy on this repo", or when onboarding onto an unfamiliar client pipeline.
+description: Run systematic context-gathering against an operational pipeline or process — parse declared artifacts, backward-trace consumer dependencies, surface tribal/motivational/ownership gaps as a confirm-or-correct list, and produce a provenance-annotated diagram by default (an execution-order ERD, or a business-category taxonomy view when that's the real question being asked). Triggers on "gather pipeline context", "map this pipeline", "what's declared vs. tribal here", "run the context taxonomy on this repo", "trace how this business logic/taxonomy is implemented across these models", or when onboarding onto an unfamiliar client pipeline.
 ---
 
 # Gather Context
@@ -10,8 +10,10 @@ the scope boundary, what the script does and doesn't judge, and the writing styl
 questions. This skill is the judgment layer on top of `scripts/scan.py`, which does the
 mechanical parsing. For framework-specific extraction detail (what dbt/Airflow shapes are
 covered today, and what isn't), see [`references/frameworks/`](./references/frameworks/).
+Diagram rendering is delegated to view-specific subagents — see
+[`references/views/`](./references/views/) and step 7 below.
 
-## Step 0 — locate this skill's own script
+## Step 0 — locate this skill's own files, and bootstrap its subagents
 
 `scan.py` has to run regardless of the current working directory or how this skill was
 installed. Resolve its path once, before step 2:
@@ -29,6 +31,32 @@ SCAN="${SKILL_DIR:+$SKILL_DIR/}scripts/scan.py"
 ```
 
 Use `"$SCAN"` in place of `scripts/scan.py` in every invocation below.
+
+This skill also bundles two subagents (`.claude/agents/visualize-erd.md`,
+`.claude/agents/visualize-taxonomy.md`) that render step 7's diagram(s). A subagent
+nested inside an installed skill folder isn't discoverable by Claude Code — it's only
+picked up from a project's own `.claude/agents/` or the global `~/.claude/agents/`. Before
+step 7 needs them, check whether they're already reachable and install them if not:
+
+```bash
+if [ -n "$SKILL_DIR" ] && [ ! -f ~/.claude/agents/visualize-erd.md ] && [ ! -f .claude/agents/visualize-erd.md ]; then
+  mkdir -p ~/.claude/agents
+  cp "$SKILL_DIR"/.claude/agents/*.md ~/.claude/agents/
+  echo "Installed gather-context's visualize-* subagents to ~/.claude/agents/"
+fi
+```
+
+If `$SKILL_DIR` is empty (a direct clone, running from `skills/gather-context/` itself),
+its own `.claude/agents/` is already project-local and discovered normally — skip this
+copy.
+
+**Known limitation, confirmed in testing:** installing these files does not make them
+dispatchable within the *same* session — the available-agent-type list is fixed when a
+session starts, not re-scanned after a mid-session file copy. A dispatch attempt in step 7
+against a subagent that was just bootstrapped by this same run will fail with something
+like "Agent type 'visualize-erd' not found," even though the file is correctly present on
+disk. Step 7's fallback (below) exists specifically to make this a non-event rather than a
+blocker — but don't assume a freshly-bootstrapped subagent is actually reachable this run.
 
 ## Scope check first
 
@@ -156,29 +184,65 @@ there's no operational reality to observe, say so and stop — that's a differen
      table/field names, business logic specifics) first, since a promoted reference is
      shared across every future engagement this skill runs against.
 
-7. **Build a data-flow diagram as a standard part of every report — not a special
-   request, not something to wait to be asked for.** Draw it from what steps 4–6 already
-   produced, following the convention in
-   [`references/erd-provenance.md`](./references/erd-provenance.md):
-   - **Solid edges** — straight from `declared_sequences` (a real dbt/Airflow edge).
-   - **Dashed edges** — the order reconstructed in step 5's fallback reading (the
-     "declared but not parseable" and "uncovered" cases), and any confirmed
-     `undeclared_dependencies` from backward-trace.
-   - **Black-box nodes** — any named-but-unreachable external system found while
-     reading — a SaaS tool, a microservice, a repo mentioned by name in docs/config that
-     this run didn't have access to (e.g. a README pointing at a deployment stack or an
-     orchestration definition that lives in a different repo). Draw it explicitly, never
-     drop it silently.
-   - **A provenance-count banner** as the first line, per the convention doc.
+7. **Build at least one diagram as a standard part of every report — not a special
+   request, not something to wait to be asked for.** This skill stays agnostic to *how*
+   the findings get drawn; rendering is delegated to a view-specific subagent per
+   [`references/views/`](./references/views/), not done inline here.
 
-   Write it as a Mermaid diagram (a ` ```mermaid ` fence) embedded directly in the report
-   under the "ERD / data-flow diagram" section below — plain text, renders natively
-   wherever the report is viewed, no extra tooling needed.
+   - **Decide which view(s) are needed.** Default to the ERD/execution-order view
+     (`erd-view.md`) — that's the right answer for "what runs before what," and for most
+     requests. Switch to the taxonomy view (`taxonomy-view.md`) instead — or in addition —
+     when the request is really about how rows get classified into business categories and
+     whether that classification holds across pipeline stages, not about execution order
+     (e.g. "trace how this business logic/metric definition is implemented across these
+     models," "what taxonomy applies to these facts"). When it's genuinely ambiguous which
+     one fits, ask rather than default silently. Both can run in the same pass — dispatch
+     them in parallel (see below), not one after the other.
 
-   Skip only when there's truly nothing to draw — a single, self-contained script with
-   zero `declared_sequences`, zero backward-trace hits, and no inferred edges from step 5.
-   Even then, say explicitly why it was skipped in that section rather than silently
-   omitting it.
+   - **Assemble each view's input** from what's already been gathered:
+     - *For `erd-view.md`*: the `declared_sequences` execution order, the inferred order
+       from step 5's fallback reading, confirmed `undeclared_dependencies` from
+       backward-trace, and any named-but-unreachable external systems found while reading.
+       All of this already exists from steps 4–6 — no new reading needed.
+     - *For `taxonomy-view.md`*: this needs a read `scan.py` doesn't do — go find each
+       category rows get sorted into (per pipeline stage) and its isolation rule (a
+       `WHERE`/`CASE WHEN`, join condition, dimension flag, or timestamp window), reading
+       compiled model SQL, metric/semantic-layer definitions, and docs. Tag each one
+       mechanical (rule read directly from code/config) or inferred (concluded from other
+       reading), note anything referenced only by name with no discoverable rule as a
+       black-box category, and note anything filtered out entirely before the next stage
+       (rather than mapped forward) as dropped. Also work out any hierarchy (parent/child
+       categories within a stage) and stage-to-stage mappings (which downstream category a
+       stage's rows land in next) that you can support from what you read.
+
+   - **Dispatch to the matching subagent(s)** (`visualize-erd`, `visualize-taxonomy` —
+     install them first per step 0 if not already reachable), each with: the resolved
+     absolute path to its convention doc (`$SKILL_DIR/references/views/<view>.md`), and the
+     assembled input above. Run multiple requested views as parallel dispatches, not
+     sequential ones. Each subagent returns only its provenance banner + Mermaid block (or
+     a one-line "nothing to draw" statement) — splice that verbatim into the report, one
+     section per view (see the output template below); don't re-derive or edit what a
+     subagent returns.
+
+   - **Fall back to rendering inline if dispatch itself isn't available.** Per step 0's
+     known limitation, a subagent bootstrapped earlier in this same run may not yet be a
+     dispatchable agent type — if the dispatch attempt fails on "agent type not found"
+     (rather than the subagent running and reporting a real problem), don't block the
+     report or leave the section empty: read that view's convention doc directly yourself
+     and render the diagram inline, following it exactly as the subagent would have. Same
+     output, same rules, just done in the current context instead of delegated — this is a
+     fallback for *this run only*, not a reason to stop dispatching in future runs once the
+     subagent is actually reachable (confirmed in testing: as soon as the next turn/request
+     — not a full new session — the agent-type registry picks it up and real dispatch
+     works normally; this typically only fires once per machine, since `~/.claude/agents/`
+     is global).
+
+   - **Skip a given view only when there's genuinely nothing to draw for it** (per its own
+     convention doc) — e.g. the ERD view has zero `declared_sequences`, zero
+     backward-trace hits, and no inferred edges; the taxonomy view was handed no
+     categories at all. Say explicitly why in that view's section rather than silently
+     omitting it. This is distinct from a view that was never requested at all (a
+     taxonomy-only ask has no reason to attempt the ERD view) — see the output template.
 
 8. **Write a brief, best-effort description of what this pipeline actually does, at the
    top of the report.** Synthesize it from everything already read in the steps above —
@@ -242,8 +306,9 @@ guessing.>
 <one line, e.g. "3 findings mechanically derived (scan.py) · 5 findings inferred (direct
 code/doc reading) · 2 gaps unresolved". Every section below should trace back to one of
 these buckets -- never let an inferred finding read with the same certainty as a
-mechanical one. The same split applies to the ERD below, per references/erd-provenance.md
--- same principle, applied to edges instead of bullets.>
+mechanical one. The same split applies to every diagram below, per whichever
+references/views/*.md convention rendered it -- same principle, applied to nodes/edges
+instead of bullets.>
 
 ## Detected stack
 <one entry per detected_stack item: signal, category, confidence, evidence path -- report
@@ -290,14 +355,21 @@ agreed>
 <current-vs-latest-dated-release flags, or "no dated-release convention found">
 
 ## ERD / data-flow diagram
-<a Mermaid diagram (```mermaid fence), built by default per step 7: solid edges from
-declared_sequences, dashed edges from step 5's inferred order and any confirmed
-backward-trace hits, black-box nodes for named-but-unreachable external systems, a
-provenance-count banner as the first line -- see references/erd-provenance.md.>
-<only if truly nothing to draw (a single self-contained script, zero declared_sequences,
-zero backward-trace hits, zero inferred edges): "No ERD produced this run -- nothing to
-draw: <one-line reason>." Never the default outcome; always name the reason when it
-happens.>
+<omit this section entirely, with a one-line note why, only when step 7 determined the
+request is taxonomy-only and this view was never attempted -- that's different from
+attempting it and finding nothing to draw. Otherwise: the rendered response (subagent's,
+or this run's own inline fallback per step 7 if dispatch wasn't available), verbatim
+(provenance banner + Mermaid ```mermaid fence), built by default per step 7 -- see
+references/views/erd-view.md. Only if genuinely nothing to draw: "No ERD produced this run
+-- nothing to draw: <one-line reason>." Never the default outcome; always name the reason
+when it happens.>
+
+## Taxonomy view
+<only present when step 7 determined this view was needed -- omit the section entirely
+otherwise, don't include it empty. The rendered response (subagent's, or this run's own
+inline fallback per step 7 if dispatch wasn't available), verbatim (provenance banner +
+Mermaid ```mermaid fence) -- see references/views/taxonomy-view.md. If genuinely nothing
+to draw, say so with a one-line reason instead.>
 
 ## Gaps needing a person to close (confirm or correct)
 - [ ] <specific question 1>
@@ -346,6 +418,16 @@ references/frameworks/" or "none">
 - This directory is deliberately not dot-prefixed (an earlier version used
   `~/.gather-context/`) — a leading dot hides it from Finder/Explorer by default, which
   is exactly wrong for a location that holds something a person wants to open and read.
+- Diagram rendering used to be inline in this file, scoped to one view (an ERD). It's now
+  delegated to view-specific subagents (`references/views/`, `.claude/agents/visualize-*`)
+  so this skill's own judgment layer stays agnostic to *how* findings get drawn — adding a
+  new view (an ownership map, a sequence diagram) means adding a new convention doc +
+  subagent pair, not touching step 7's dispatch logic.
+- Confirmed in testing: a subagent this run just bootstrapped (step 0) is not reliably
+  dispatchable in that same session — the fix is step 7's inline-rendering fallback, not
+  something to "wait out." Don't treat a dispatch failure here as a real problem with the
+  target or the findings; it's a session-timing artifact of subagent installation, and the
+  fallback produces the same report section regardless.
 
 ## Install
 
@@ -354,3 +436,7 @@ npx skills add snowpackdata/snowpack-claude-skills --skill gather-context
 ```
 
 Manual fallback (always works): `cp -r skills/gather-context ~/.claude/skills/`.
+
+Either way, the Step 0 bootstrap above handles installing the bundled `visualize-*`
+subagents to `~/.claude/agents/` the first time step 7 needs them — no separate setup
+step.
