@@ -51,6 +51,10 @@ From there, Claude will:
    pipeline does up top, every finding below it, and the rendered diagram(s), all in
    one place. Written by default to `~/gather-context-reports/<target-name>/`, outside
    the scanned target, so it survives even if the target itself is a temporary clone.
+6. If the separate [`plain-style`](../plain-style) skill is installed, pass the finished
+   report through it for a line-level style pass. Optional — if `plain-style` isn't
+   present, the report is unaffected, and Claude just mentions it once in that run's reply
+   rather than installing it or blocking on it.
 
 You can also run the mechanical half directly, no Claude session needed — useful for
 scripting or a quick sanity check, though the skill is what actually turns this into

@@ -11,7 +11,9 @@ questions. This skill is the judgment layer on top of `scripts/scan.py`, which d
 mechanical parsing. For framework-specific extraction detail (what dbt/Airflow shapes are
 covered today, and what isn't), see [`references/frameworks/`](./references/frameworks/).
 Diagram rendering is delegated to view-specific subagents — see
-[`references/views/`](./references/views/) and step 7 below.
+[`references/views/`](./references/views/) and step 7 below. If the separate `plain-style`
+skill is installed, the finished report gets a line-level style pass at the end (step 11)
+— optional, never required.
 
 ## Step 0 — locate this skill's own files, and bootstrap its subagents
 
@@ -57,6 +59,31 @@ against a subagent that was just bootstrapped by this same run will fail with so
 like "Agent type 'visualize-erd' not found," even though the file is correctly present on
 disk. Step 7's fallback (below) exists specifically to make this a non-event rather than a
 blocker — but don't assume a freshly-bootstrapped subagent is actually reachable this run.
+
+**Optional: locate the `plain-style` skill, if it's installed.** Step 11 dispatches the
+finished report through `plain-style`'s `apply-style-guide` subagent for a line-level
+style pass. This is a genuinely separate, independently-installed skill — it may not be
+present, and that's a normal, fully-supported case, not an error:
+
+```bash
+STYLE_SKILL_DIR=""
+for candidate in ~/.claude/skills/plain-style .claude/skills/plain-style; do
+  if [ -f "$candidate/references/style-guide.md" ]; then
+    STYLE_SKILL_DIR="$candidate"
+    break
+  fi
+done
+
+if [ -n "$STYLE_SKILL_DIR" ] && [ ! -f ~/.claude/agents/apply-style-guide.md ] && [ ! -f .claude/agents/apply-style-guide.md ]; then
+  mkdir -p ~/.claude/agents
+  cp "$STYLE_SKILL_DIR"/.claude/agents/*.md ~/.claude/agents/
+  echo "Installed plain-style's apply-style-guide subagent to ~/.claude/agents/"
+fi
+```
+
+If `$STYLE_SKILL_DIR` is empty, `plain-style` isn't installed — skip step 11 entirely, no
+error, no note in the report. If it's found, the same same-session dispatch limitation
+above applies to `apply-style-guide` too; step 11's own fallback covers it.
 
 ## Scope check first
 
@@ -270,6 +297,26 @@ there's no operational reality to observe, say so and stop — that's a differen
     write command's exit code — before doing anything else that could remove the target
     (deleting a clone, etc.).
 
+11. **Pass the written report through `plain-style`, if it's installed.** This is a soft
+    dependency — `gather-context` works fully without it. If step 0 found
+    `$STYLE_SKILL_DIR`, dispatch to `apply-style-guide` with the resolved path to
+    `$STYLE_SKILL_DIR/references/style-guide.md`, the report's full text, and note that the
+    internal-use-only notice, every Mermaid block, code block, file path, and the
+    provenance banners are out of scope — reproduce those exactly, revise everything else.
+    Same inline-fallback rule as step 7's dispatches: if `apply-style-guide` isn't
+    dispatchable yet this session (freshly bootstrapped, same known limitation), read
+    `style-guide.md` yourself and apply it directly instead of blocking. Overwrite the
+    report with the revised text and confirm the write landed the same way step 10 does.
+    If `$STYLE_SKILL_DIR` is empty (not installed), skip the dispatch and leave the report
+    untouched — never note its absence in the report itself; unlike a skipped
+    backward-trace, this doesn't change what the report found, only how it reads. Do say
+    so out loud, once, in your conversational reply for this run (not written into the
+    report file): something like "plain-style isn't installed, so this report's prose
+    skipped the style pass — install it with `npx skills add
+    snowpackdata/snowpack-claude-skills --skill plain-style` to get it automatically." This
+    is a spoken nudge for whoever's running it right now, not a gate on finishing the
+    report and not a permanent record inside it.
+
 ## Where to write it
 
 Default: `~/gather-context-reports/<target-basename>/pipeline-context-report.md`
@@ -428,6 +475,12 @@ references/frameworks/" or "none">
   something to "wait out." Don't treat a dispatch failure here as a real problem with the
   target or the findings; it's a session-timing artifact of subagent installation, and the
   fallback produces the same report section regardless.
+- `plain-style` is a genuinely optional, separately-installed skill. Its absence is never
+  flagged inside the report itself — it changes how the report reads, not what it found —
+  but step 11 does mention it once in the conversational reply for that run, so its
+  absence doesn't go unnoticed by whoever's actually running it. Install it (see its own
+  repo entry) if you want every `gather-context` report to get the same style pass
+  automatically.
 
 ## Install
 
