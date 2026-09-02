@@ -1,0 +1,570 @@
+#!/usr/bin/env python3
+"""
+wip-github: deterministic readout of your open GitHub work.
+
+Collects, for the authenticated user, across every repo reachable:
+  - open PRs you authored (draft vs ready), with merge/CI/review state
+  - open PRs where your review is requested, or you reviewed/are assigned
+  - open issues you created or are assigned
+  - branches with commits you authored that have no open PR
+  - repos that could not be scanned (no access in this session)
+
+Read-only. Never writes to GitHub. Never prints tokens. No repos are hard-coded.
+
+Auth/transport: `gh` CLI (preferred, uses your existing `gh auth`). If `gh` is
+missing, falls back to curl with $GH_TOKEN / $GITHUB_TOKEN.
+
+Discovery: tries the cross-account search API first. Where that is blocked
+(Claude Code on the web binds sessions to attached repos), it scans repo by
+repo. Repo list sources, first match wins:
+  --repos a/b,c/d   |   $WIP_GITHUB_REPOS   |   ~/.config/wip-github/repos.txt
+  |   GET /user/repos (only works with an unrestricted token)
+
+Usage:
+  wip.py                      # markdown to stdout
+  wip.py --json               # machine-readable
+  wip.py --repos owner/a,owner/b --days 120
+"""
+from __future__ import annotations
+
+import argparse
+import concurrent.futures as cf
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+API = "https://api.github.com"
+UA = "wip-github/1.0"
+NOW = datetime.now(timezone.utc)
+
+
+# --------------------------------------------------------------------------- #
+# transport
+# --------------------------------------------------------------------------- #
+class ApiError(Exception):
+    def __init__(self, status: int, message: str, path: str):
+        super().__init__(f"HTTP {status} on {path}: {message}")
+        self.status, self.message, self.path = status, message, path
+
+
+class Transport:
+    def __init__(self) -> None:
+        self.mode = "gh" if shutil.which("gh") else "curl"
+        if self.mode == "curl" and not (os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")):
+            sys.exit("wip-github: need `gh` on PATH or GH_TOKEN/GITHUB_TOKEN set")
+        self.calls = 0
+
+    def get(self, path: str):
+        """GET an API path (relative, may include query). Returns parsed JSON."""
+        self.calls += 1
+        if self.mode == "gh":
+            proc = subprocess.run(
+                ["gh", "api", "--include", "-H", "Accept: application/vnd.github+json", path],
+                capture_output=True, text=True,
+            )
+            raw = proc.stdout
+        else:
+            tok = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+            proc = subprocess.run(
+                ["curl", "-sS", "-i", "-H", f"Authorization: Bearer {tok}",
+                 "-H", "Accept: application/vnd.github+json", "-H", f"User-Agent: {UA}",
+                 f"{API}/{path}"],
+                capture_output=True, text=True,
+            )
+            raw = proc.stdout
+        # split headers/body (handle possible 1xx continuation blocks)
+        status, body = 0, ""
+        chunks = raw.split("\r\n\r\n") if "\r\n\r\n" in raw else raw.split("\n\n")
+        for i, chunk in enumerate(chunks):
+            m = re.match(r"HTTP/\S+\s+(\d{3})", chunk)
+            if m:
+                status = int(m.group(1))
+                body = "\n\n".join(chunks[i + 1:])
+            else:
+                body = chunk if i == len(chunks) - 1 else body
+        if status == 0 and proc.returncode != 0:
+            raise ApiError(0, (proc.stderr or raw).strip()[:300], path)
+        try:
+            data = json.loads(body) if body.strip() else None
+        except json.JSONDecodeError:
+            data = None
+        if status >= 400:
+            msg = (data or {}).get("message", body.strip()[:300]) if isinstance(data, dict) else body.strip()[:300]
+            raise ApiError(status, msg, path)
+        return data
+
+    def get_all(self, path: str, cap: int = 300):
+        """Paginate a list endpoint (per_page=100) up to `cap` items."""
+        out, page = [], 1
+        sep = "&" if "?" in path else "?"
+        while len(out) < cap:
+            chunk = self.get(f"{path}{sep}per_page=100&page={page}")
+            if not isinstance(chunk, list):
+                break
+            out.extend(chunk)
+            if len(chunk) < 100:
+                break
+            page += 1
+        return out[:cap]
+
+
+# --------------------------------------------------------------------------- #
+# helpers
+# --------------------------------------------------------------------------- #
+def age_days(iso: str | None) -> int | None:
+    if not iso:
+        return None
+    return (NOW - datetime.fromisoformat(iso.replace("Z", "+00:00"))).days
+
+
+def repo_of(item: dict) -> str:
+    """Owner/name from a search result or PR object."""
+    if "repository_url" in item:
+        return item["repository_url"].split("/repos/")[-1]
+    return item["base"]["repo"]["full_name"]
+
+
+def is_bound_error(e: ApiError) -> bool:
+    return e.status == 403 and ("bound to their configured repositories" in e.message
+                                or "not enabled for this session" in e.message)
+
+
+# --------------------------------------------------------------------------- #
+# collection
+# --------------------------------------------------------------------------- #
+class Collector:
+    def __init__(self, t: Transport, me: str, days: int, workers: int):
+        self.t, self.me, self.days, self.workers = t, me, days, workers
+        self.unreachable: dict[str, str] = {}   # repo -> reason
+        self.notes: list[str] = []
+
+    # ---- PR shaping -------------------------------------------------------
+    def shape_pr(self, pr: dict) -> dict:
+        repo = repo_of(pr)
+        return {
+            "repo": repo,
+            "number": pr["number"],
+            "title": pr["title"],
+            "url": pr["html_url"],
+            "author": pr["user"]["login"],
+            "draft": bool(pr.get("draft")),
+            "updated_days": age_days(pr.get("updated_at")),
+            "created_days": age_days(pr.get("created_at")),
+            "head": (pr.get("head") or {}).get("ref"),
+            "requested_reviewers": [u["login"] for u in pr.get("requested_reviewers", [])],
+            "assignees": [u["login"] for u in pr.get("assignees", [])],
+        }
+
+    def enrich_pr(self, p: dict) -> dict:
+        """Add mergeable_state + review decision. 2 calls."""
+        try:
+            full = self.t.get(f"repos/{p['repo']}/pulls/{p['number']}")
+            # GitHub computes mergeability lazily: first GET often says "unknown". Re-ask briefly.
+            for _ in range(2):
+                if full.get("mergeable") is not None or full.get("mergeable_state") != "unknown":
+                    break
+                time.sleep(1.5)
+                full = self.t.get(f"repos/{p['repo']}/pulls/{p['number']}")
+            p["mergeable_state"] = full.get("mergeable_state")  # clean|dirty|blocked|unstable|behind|unknown
+            p["head"] = full["head"]["ref"]
+            p["requested_reviewers"] = [u["login"] for u in full.get("requested_reviewers", [])]
+            reviews = self.t.get_all(f"repos/{p['repo']}/pulls/{p['number']}/reviews", cap=200)
+            latest: dict[str, str] = {}
+            for r in reviews:  # chronological; last state per reviewer wins
+                if r["state"] in ("APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED"):
+                    latest[r["user"]["login"]] = r["state"]
+            latest.pop(p["author"], None)
+            states = set(latest.values())
+            p["review"] = ("changes_requested" if "CHANGES_REQUESTED" in states
+                           else "approved" if "APPROVED" in states
+                           else "commented" if latest else "none")
+            p["reviewers"] = sorted(latest)
+        except ApiError as e:
+            p["mergeable_state"], p["review"] = "unknown", "unknown"
+            p["enrich_error"] = e.message[:120]
+        return p
+
+    # ---- fast path: search API -------------------------------------------
+    def via_search(self) -> dict | None:
+        q = lambda s: self.t.get(f"search/issues?q={s}&per_page=100")  # noqa: E731
+        try:
+            mine = q("is:pr+is:open+author:@me")
+        except ApiError as e:
+            if is_bound_error(e) or e.status in (403, 422):
+                return None
+            raise
+        review_req = q("is:pr+is:open+review-requested:@me")
+        involved = q("is:pr+is:open+involves:@me+-author:@me")
+        issues_mine = q("is:issue+is:open+author:@me")
+        issues_assigned = q("is:issue+is:open+assignee:@me+-author:@me")
+        for name, r in (("mine", mine), ("review", review_req), ("involved", involved)):
+            if r.get("incomplete_results"):
+                self.notes.append(f"search '{name}' returned incomplete results")
+        return {
+            "mine": [self.shape_pr(i) for i in mine["items"]],
+            "review_requested": [self.shape_pr(i) for i in review_req["items"]],
+            "involved": [self.shape_pr(i) for i in involved["items"]],
+            "issues_mine": [self.shape_issue(i) for i in issues_mine["items"]],
+            "issues_assigned": [self.shape_issue(i) for i in issues_assigned["items"]],
+        }
+
+    def shape_issue(self, i: dict) -> dict:
+        return {
+            "repo": repo_of(i), "number": i["number"], "title": i["title"], "url": i["html_url"],
+            "updated_days": age_days(i.get("updated_at")), "assignees": [a["login"] for a in i.get("assignees", [])],
+            "labels": [l["name"] for l in i.get("labels", [])],
+        }
+
+    # ---- fallback path: per-repo REST -------------------------------------
+    def scan_repo_prs_issues(self, repo: str) -> dict:
+        out = {"mine": [], "review_requested": [], "involved": [], "issues_mine": [], "issues_assigned": [],
+               "open_pr_heads": set(), "ok": True}
+        try:
+            prs = self.t.get_all(f"repos/{repo}/pulls?state=open", cap=200)
+        except ApiError as e:
+            self.unreachable[repo] = f"HTTP {e.status}: {e.message[:90]}"
+            out["ok"] = False
+            return out
+        for pr in prs:
+            pr.setdefault("base", {"repo": {"full_name": repo}})
+            p = self.shape_pr(pr)
+            out["open_pr_heads"].add(p["head"])
+            if p["author"] == self.me:
+                out["mine"].append(p)
+            elif self.me in p["requested_reviewers"]:
+                out["review_requested"].append(p)
+            elif self.me in p["assignees"]:
+                out["involved"].append(p)
+            else:
+                # did I review it? (one call per foreign open PR)
+                try:
+                    reviews = self.t.get_all(f"repos/{repo}/pulls/{p['number']}/reviews", cap=100)
+                    if any(r["user"]["login"] == self.me for r in reviews):
+                        out["involved"].append(p)
+                except ApiError:
+                    pass
+        try:
+            for i in self.t.get_all(f"repos/{repo}/issues?state=open&creator={self.me}", cap=200):
+                if "pull_request" not in i:
+                    out["issues_mine"].append(self.shape_issue(i))
+            for i in self.t.get_all(f"repos/{repo}/issues?state=open&assignee={self.me}", cap=200):
+                if "pull_request" not in i and i["user"]["login"] != self.me:
+                    out["issues_assigned"].append(self.shape_issue(i))
+        except ApiError as e:
+            self.notes.append(f"{repo}: issues not readable ({e.status})")
+        return out
+
+    # ---- branches (always per-repo; no search API for refs) --------------
+    def scan_repo_branches(self, repo: str, open_heads: set[str], max_branches: int) -> dict:
+        res = {"stray": [], "merged_count": 0, "closed_pr_count": 0, "skipped": 0}
+        try:
+            meta = self.t.get(f"repos/{repo}")
+            default = meta["default_branch"]
+            branches = self.t.get_all(f"repos/{repo}/branches", cap=max_branches + 1)
+        except ApiError as e:
+            if repo not in self.unreachable:
+                self.unreachable[repo] = f"HTTP {e.status}: {e.message[:90]}"
+            return res
+        if len(branches) > max_branches:
+            res["skipped"] = len(branches) - max_branches
+            branches = branches[:max_branches]
+        cands = [b["name"] for b in branches if b["name"] != default and b["name"] not in open_heads]
+
+        def compare(name: str):
+            try:
+                c = self.t.get(f"repos/{repo}/compare/{default}...{name}?per_page=50")
+            except ApiError:
+                return None
+            commits = c.get("commits", [])
+            authors = {(cm.get("author") or {}).get("login") for cm in commits}
+            authors.discard(None)
+            head_date = (commits[-1]["commit"]["committer"]["date"] if commits else None)
+            return {
+                "repo": repo, "branch": name, "ahead": c.get("ahead_by", 0), "behind": c.get("behind_by", 0),
+                "authors": sorted(authors), "updated_days": age_days(head_date),
+                "url": f"https://github.com/{repo}/tree/{name}",
+            }
+
+        owner = repo.split("/")[0]
+
+        def had_pr(b: dict) -> dict:
+            """Was there ever a PR for this branch? A closed one means it was abandoned, not forgotten."""
+            try:
+                prs = self.t.get(f"repos/{repo}/pulls?state=all&head={owner}:{b['branch']}&per_page=5")
+            except ApiError:
+                prs = []
+            closed = [x for x in prs if x["state"] == "closed"]
+            if closed:
+                b["closed_pr"] = closed[0]["number"]
+                b["closed_pr_merged"] = bool(closed[0].get("merged_at"))
+            return b
+
+        with cf.ThreadPoolExecutor(max_workers=self.workers) as ex:
+            mine = []
+            for r in ex.map(compare, cands):
+                if r is None:
+                    continue
+                if r["ahead"] == 0:
+                    if self.me in r["authors"] or not r["authors"]:
+                        res["merged_count"] += 1
+                    continue
+                if self.me in r["authors"]:
+                    mine.append(r)
+            for b in ex.map(had_pr, mine):
+                if b.get("closed_pr"):
+                    res["closed_pr_count"] += 1
+                else:
+                    res["stray"].append(b)
+        return res
+
+    # ---- coverage: repos you can see vs repos the Claude app can see -----
+    def coverage_gap(self, repos_scanned: list[str]) -> dict:
+        """Laptop only: compare /user/repos to the Claude GitHub App installation repos."""
+        gap = {"checked": False, "you_only": [], "reason": None}
+        try:
+            insts = self.t.get("user/installations?per_page=100")
+        except ApiError as e:
+            gap["reason"] = f"installations not readable ({e.status})"
+            return gap
+        claude = [i for i in insts.get("installations", []) if "claude" in (i.get("app_slug") or "").lower()]
+        if not claude:
+            gap["reason"] = "no Claude GitHub App installation visible to this token"
+            return gap
+        app_repos: set[str] = set()
+        for inst in claude:
+            for r in self.t.get_all(f"user/installations/{inst['id']}/repositories", cap=500):
+                app_repos.add(r["full_name"])
+        gap["checked"] = True
+        gap["you_only"] = sorted(r for r in repos_scanned if r not in app_repos)
+        return gap
+
+
+# --------------------------------------------------------------------------- #
+# repo discovery
+# --------------------------------------------------------------------------- #
+def discover_repos(t: Transport, args, days: int) -> tuple[list[str], str]:
+    if args.repos:
+        return [r.strip() for r in args.repos.split(",") if r.strip()], "--repos"
+    env = os.environ.get("WIP_GITHUB_REPOS")
+    if env:
+        return [r.strip() for r in env.split(",") if r.strip()], "$WIP_GITHUB_REPOS"
+    cfg = Path.home() / ".config" / "wip-github" / "repos.txt"
+    if cfg.exists():
+        lines = [l.strip() for l in cfg.read_text().splitlines()]
+        return [l for l in lines if l and not l.startswith("#")], str(cfg)
+    try:
+        repos = t.get_all("user/repos?affiliation=owner,collaborator,organization_member&sort=pushed", cap=400)
+    except ApiError as e:
+        return [], f"none (user/repos: HTTP {e.status})"
+    cutoff = NOW - timedelta(days=days)
+    keep = [r["full_name"] for r in repos
+            if not r.get("archived") and datetime.fromisoformat(r["pushed_at"].replace("Z", "+00:00")) >= cutoff]
+    return keep, f"user/repos (pushed within {days}d)"
+
+
+# --------------------------------------------------------------------------- #
+# ranking
+# --------------------------------------------------------------------------- #
+def pick_next(d: dict) -> dict | None:
+    """Deterministic 'do this first'. Returns {reason, item}."""
+    mine = d["prs"]["mine"]
+    ready = [p for p in mine if not p["draft"]]
+    drafts = [p for p in mine if p["draft"]]
+    by_age = lambda xs: sorted(xs, key=lambda x: -(x.get("updated_days") or 0))  # noqa: E731
+    rules = [
+        ("changes requested on your PR", [p for p in ready if p.get("review") == "changes_requested"]),
+        ("your review is requested", by_age(d["prs"]["review_requested"])),
+        ("your PR has merge conflicts", [p for p in ready if p.get("mergeable_state") == "dirty"]),
+        ("your PR has failing checks", [p for p in ready if p.get("mergeable_state") == "unstable"]),
+        ("approved and clean: merge it", [p for p in ready if p.get("review") == "approved" and p.get("mergeable_state") == "clean"]),
+        ("ready PR with no review yet: ask for one", by_age([p for p in ready if p.get("review") == "none"])),
+        ("oldest ready PR", by_age(ready)),
+        ("oldest draft: finish or close", by_age(drafts)),
+        ("stalest branch without a PR", by_age(d["branches"]["stray"])),
+        ("oldest issue you opened", by_age(d["issues"]["mine"])),
+    ]
+    for reason, items in rules:
+        if items:
+            return {"reason": reason, "item": items[0]}
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# render
+# --------------------------------------------------------------------------- #
+STATE_ICON = {"clean": "clean", "dirty": "CONFLICT", "unstable": "CI failing", "blocked": "blocked",
+              "behind": "behind base", "unknown": "?", None: "?"}
+REVIEW_ICON = {"changes_requested": "changes requested", "approved": "approved", "commented": "commented",
+               "none": "no review", "unknown": "?"}
+
+
+def short(repo: str) -> str:
+    return repo.split("/", 1)[1]
+
+
+def pr_line(p: dict, show_state=True) -> str:
+    bits = [f"[{short(p['repo'])}#{p['number']} {p['title']}]({p['url']})"]
+    if show_state:
+        st = STATE_ICON.get(p.get("mergeable_state"), "?")
+        rv = REVIEW_ICON.get(p.get("review"), "?")
+        bits.append(f"{st} · {rv}")
+    else:
+        bits.append(f"by {p['author']}")
+    if p.get("updated_days") is not None:
+        bits.append(f"{p['updated_days']}d")
+    return "- " + " · ".join(bits)
+
+
+def capped(lines: list[str], limit: int) -> list[str]:
+    if limit and len(lines) > limit:
+        return lines[:limit] + [f"- … +{len(lines) - limit} more (use --limit 0 for all)"]
+    return lines
+
+
+def render_md(d: dict, limit: int = 10) -> str:
+    L: list[str] = []
+    m = d["meta"]
+    L.append(f"## WIP · {m['user']} · {m['date']} · {m['repos_scanned']} repos · {m['mode']}")
+    nxt = d["next"]
+    if nxt:
+        it = nxt["item"]
+        label = f"[{short(it['repo'])}#{it['number']}]({it['url']})" if "number" in it else f"[{short(it['repo'])}:{it['branch']}]({it['url']})"
+        L.append(f"**Next:** {nxt['reason']} → {label}")
+    else:
+        L.append("**Next:** nothing open. Clean slate.")
+    prs, iss, br = d["prs"], d["issues"], d["branches"]
+
+    needs = [p for p in prs["mine"] if not p["draft"] and p.get("review") == "changes_requested"] \
+        + prs["review_requested"]
+    if needs:
+        L.append(f"\n### Needs you ({len(needs)})")
+        for p in needs:
+            tag = "changes requested" if p["author"] == m["user"] else "review requested"
+            L.append(pr_line(p, show_state=False).replace("- ", f"- {tag} · ", 1))
+
+    ready = [p for p in prs["mine"] if not p["draft"]]
+    drafts = [p for p in prs["mine"] if p["draft"]]
+    L.append(f"\n### My PRs · ready ({len(ready)})")
+    L += capped([pr_line(p) for p in sorted(ready, key=lambda p: p["updated_days"] or 0)], limit * 2) or ["- none"]
+    L.append(f"\n### My PRs · draft ({len(drafts)})")
+    L += capped([pr_line(p) for p in sorted(drafts, key=lambda p: p["updated_days"] or 0)], limit) or ["- none"]
+
+    if prs["involved"]:
+        L.append(f"\n### Watching · reviewed or assigned, not mine ({len(prs['involved'])})")
+        L += [pr_line(p, show_state=False) for p in prs["involved"]]
+
+    stray = sorted(br["stray"], key=lambda b: b["updated_days"] or 0)
+    extras = []
+    if br["merged_count"]:
+        extras.append(f"{br['merged_count']} merged, deletable")
+    if br["closed_pr_count"]:
+        extras.append(f"{br['closed_pr_count']} with a closed PR, ignored")
+    L.append(f"\n### Branches without a PR ({len(stray)})" + (" · " + " · ".join(extras) if extras else ""))
+    L += capped([f"- [{short(b['repo'])}:{b['branch']}]({b['url']}) · +{b['ahead']}/-{b['behind']} · {b['updated_days']}d"
+                 for b in stray], limit) or ["- none"]
+
+    if iss["mine"] or iss["assigned"]:
+        L.append(f"\n### Issues · opened by me ({len(iss['mine'])}) · assigned to me ({len(iss['assigned'])})")
+        L += capped([f"- [{short(i['repo'])}#{i['number']} {i['title']}]({i['url']}) · {i['updated_days']}d"
+                     for i in sorted(iss["mine"] + iss["assigned"], key=lambda i: i["updated_days"] or 0)], limit)
+
+    cov = d["coverage"]
+    if cov["unreachable"]:
+        L.append(f"\n### Not scanned · no access in this session ({len(cov['unreachable'])})")
+        L += [f"- {r}" for r in sorted(cov["unreachable"])]
+    if cov.get("you_only"):
+        L.append(f"\n### You can see these, Claude cannot ({len(cov['you_only'])})")
+        L += [f"- {r}" for r in cov["you_only"]]
+    if d["notes"]:
+        L.append("\n<sub>" + " · ".join(d["notes"]) + "</sub>")
+    L.append(f"\n<sub>{m['api_calls']} API calls · repos from {m['repo_source']}</sub>")
+    return "\n".join(L)
+
+
+# --------------------------------------------------------------------------- #
+# main
+# --------------------------------------------------------------------------- #
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--json", action="store_true", help="emit JSON instead of markdown")
+    ap.add_argument("--repos", help="comma-separated owner/name list to scan (overrides discovery)")
+    ap.add_argument("--days", type=int, default=90, help="only auto-discover repos pushed within N days")
+    ap.add_argument("--max-branches", type=int, default=80, help="branches inspected per repo")
+    ap.add_argument("--no-branches", action="store_true", help="skip branch scan (much cheaper)")
+    ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--limit", type=int, default=10, help="max lines per section in markdown (0 = all)")
+    args = ap.parse_args()
+
+    t = Transport()
+    try:
+        me = t.get("user")["login"]
+    except ApiError as e:
+        sys.exit(f"wip-github: cannot resolve authenticated user ({e})")
+
+    col = Collector(t, me, args.days, args.workers)
+    repos, source = discover_repos(t, args, args.days)
+
+    found = col.via_search()
+    mode = "search API"
+    open_heads: dict[str, set[str]] = {}
+    if found is None:
+        mode = "per-repo scan (search API blocked)"
+        if not repos:
+            sys.exit("wip-github: search API unavailable and no repo list. Pass --repos, set "
+                     "$WIP_GITHUB_REPOS, or write ~/.config/wip-github/repos.txt")
+        found = {"mine": [], "review_requested": [], "involved": [], "issues_mine": [], "issues_assigned": []}
+        with cf.ThreadPoolExecutor(max_workers=args.workers) as ex:
+            for repo, r in zip(repos, ex.map(col.scan_repo_prs_issues, repos)):
+                if not r["ok"]:
+                    continue
+                for k in found:
+                    found[k].extend(r[k])
+                open_heads[repo] = r["open_pr_heads"]
+
+    # enrich the PRs that matter (mine + review requested)
+    with cf.ThreadPoolExecutor(max_workers=args.workers) as ex:
+        list(ex.map(col.enrich_pr, found["mine"] + found["review_requested"]))
+
+    # branches
+    branches = {"stray": [], "merged_count": 0, "closed_pr_count": 0, "skipped": 0}
+    scan_targets = [r for r in repos if r not in col.unreachable]
+    if not args.no_branches and scan_targets:
+        for repo in scan_targets:
+            heads = open_heads.get(repo) or {p["head"] for p in found["mine"] + found["review_requested"] + found["involved"]
+                                             if p["repo"] == repo and p.get("head")}
+            r = col.scan_repo_branches(repo, heads, args.max_branches)
+            branches["stray"] += r["stray"]
+            branches["merged_count"] += r["merged_count"]
+            branches["closed_pr_count"] += r["closed_pr_count"]
+            branches["skipped"] += r["skipped"]
+    if branches["skipped"]:
+        col.notes.append(f"{branches['skipped']} branches skipped (cap {args.max_branches}/repo)")
+
+    coverage = {"unreachable": sorted(col.unreachable), "unreachable_detail": col.unreachable}
+    if mode == "search API":
+        coverage.update(col.coverage_gap(scan_targets))
+
+    data = {
+        "meta": {"user": me, "date": NOW.strftime("%Y-%m-%d %H:%MZ"), "mode": mode,
+                 "repos_scanned": len(scan_targets), "repo_source": source, "api_calls": t.calls,
+                 "transport": t.mode},
+        "prs": {"mine": found["mine"], "review_requested": found["review_requested"], "involved": found["involved"]},
+        "issues": {"mine": found["issues_mine"], "assigned": found["issues_assigned"]},
+        "branches": branches,
+        "coverage": coverage,
+        "notes": col.notes,
+    }
+    data["next"] = pick_next(data)
+    data["meta"]["api_calls"] = t.calls
+    print(json.dumps(data, indent=2) if args.json else render_md(data, args.limit))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
