@@ -47,10 +47,15 @@ From there, Claude will:
    default, or a business-category taxonomy view when that's the real question — and
    dispatch the rendering to that view's subagent (see
    [`references/views/`](./references/views/)).
-5. Write one file, `pipeline-context-report.md` — a plain-language summary of what the
+5. Write one file, `process_context_report.md` — flagged internal-Snowpack-use-only at
+   the top, not for direct client sharing — a plain-language summary of what the
    pipeline does up top, every finding below it, and the rendered diagram(s), all in
    one place. Written by default to `~/gather-context-reports/<target-name>/`, outside
    the scanned target, so it survives even if the target itself is a temporary clone.
+6. If the separate [`plain-style`](../plain-style) skill is installed, pass the finished
+   report through it for a line-level style pass. Optional — if `plain-style` isn't
+   present, the report is unaffected, and Claude just mentions it once in that run's reply
+   rather than installing it or blocking on it.
 
 You can also run the mechanical half directly, no Claude session needed — useful for
 scripting or a quick sanity check, though the skill is what actually turns this into

@@ -29,6 +29,26 @@ shape applies to any multi-stage transformation pipeline with a similar isolatio
 Not every pipeline has this shape — a pipeline with no categorical logic in it at all (a
 straight 1:1 passthrough) has nothing for this view to draw; use `erd-view.md` instead.
 
+## Framing the output — what to emphasize
+
+The point of this view is to illustrate real business scenarios applied to fact data, not
+just draw a lineage graph with different node labels. Keep the actual analytical question
+in view while building it: **based on the metrics and reporting a project produces, what
+are the isolations, taxonomy, and hierarchy logic — applied via timestamps, dimensions, or
+both — that determine whether a given fact row ends up included in a final metric?** This
+goes beyond the physical star-schema structure (facts joined to dimensions) — the real
+target is the *business* taxonomy and categories that the transformation code and any
+metric/semantic-layer calculations are trying to express, which table and column names
+alone won't tell you.
+
+Frame every category around a concrete scenario a stakeholder would recognize — "orders
+settled same-day," "corrections arriving late," "excluded test accounts" — not an
+abstract "category A/B/C." That's what makes a category checkable against the business,
+not just against the code. The end goal is to help the reader understand how each
+scenario/group of rows transforms in terms of taxonomy as it moves across the pipeline's
+stages — exactly what the stage-transition edges below exist to show, so don't skip
+straight to hierarchy edges within one stage and call it done.
+
 ## The convention
 
 **Nodes — a category, not a table:**
