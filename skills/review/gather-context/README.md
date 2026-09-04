@@ -20,7 +20,7 @@ project) or just the current one — global is the usual choice for a general-pu
 like this. Manual fallback, works regardless of install method:
 
 ```bash
-cp -r skills/gather-context ~/.claude/skills/
+cp -r skills/review/gather-context ~/.claude/skills/
 ```
 
 ## Usage

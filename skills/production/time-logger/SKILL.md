@@ -48,8 +48,8 @@ if [ -n "$SKILL_DIR" ] && [ ! -f ~/repos/time_logs/user-preferences.md ]; then
 fi
 ```
 
-If you cloned this repo directly and opened `skills/time-logger` itself as the project
-root, `$SKILL_DIR` won't match either candidate (it's not installed as a skill) — its own
+If you cloned this repo directly and opened `skills/production/time-logger` itself as
+the project root, `$SKILL_DIR` won't match either candidate (it's not installed as a skill) — its own
 `.claude/agents/` already works natively via normal per-project discovery, so the
 subagent-copy step is skipped safely; only the directory/config bootstrap still applies.
 
@@ -92,6 +92,6 @@ inside the repo directly:
 
 ```bash
 git clone https://github.com/snowpackdata/snowpack-claude-skills.git
-cd snowpack-claude-skills/skills/time-logger
+cd snowpack-claude-skills/skills/production/time-logger
 ./setup.sh
 ```

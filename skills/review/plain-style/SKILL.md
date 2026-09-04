@@ -35,8 +35,9 @@ if [ -n "$SKILL_DIR" ] && [ ! -f ~/.claude/agents/apply-style-guide.md ] && [ ! 
 fi
 ```
 
-If `$SKILL_DIR` is empty (a direct clone, running from `skills/plain-style/` itself), its
-own `.claude/agents/` is already project-local and discovered normally -- skip the copy.
+If `$SKILL_DIR` is empty (a direct clone, running from `skills/review/plain-style/`
+itself), its own `.claude/agents/` is already project-local and discovered normally --
+skip the copy.
 
 **Known limitation, same one `gather-context` already documents:** installing the
 subagent does not make it dispatchable within the *same* session -- the available-agent-
@@ -93,7 +94,7 @@ correctly present on disk. The fallback below exists specifically for this.
 npx skills add snowpackdata/snowpack-claude-skills --skill plain-style
 ```
 
-Manual fallback (always works): `cp -r skills/plain-style ~/.claude/skills/`.
+Manual fallback (always works): `cp -r skills/review/plain-style ~/.claude/skills/`.
 
 Either way, the Step 0 bootstrap above handles installing the bundled
 `apply-style-guide` subagent to `~/.claude/agents/` the first time it's needed -- no

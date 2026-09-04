@@ -31,7 +31,7 @@ for candidate in ~/.claude/skills/gather-context .claude/skills/gather-context; 
   fi
 done
 SCAN="${SKILL_DIR:+$SKILL_DIR/}scripts/scan.py"
-[ -z "$SKILL_DIR" ] && SCAN="scripts/scan.py"  # direct clone, running from skills/gather-context/ itself
+[ -z "$SKILL_DIR" ] && SCAN="scripts/scan.py"  # direct clone, running from skills/review/gather-context/ itself
 ```
 
 Use `"$SCAN"` in place of `scripts/scan.py` in every invocation below.
@@ -50,8 +50,8 @@ if [ -n "$SKILL_DIR" ] && [ ! -f ~/.claude/agents/visualize-erd.md ] && [ ! -f .
 fi
 ```
 
-If `$SKILL_DIR` is empty (a direct clone, running from `skills/gather-context/` itself),
-its own `.claude/agents/` is already project-local and discovered normally — skip this
+If `$SKILL_DIR` is empty (a direct clone, running from `skills/review/gather-context/`
+itself), its own `.claude/agents/` is already project-local and discovered normally — skip this
 copy.
 
 **Known limitation, confirmed in testing:** installing these files does not make them
@@ -496,7 +496,7 @@ references/frameworks/" or "none">
 npx skills add snowpackdata/snowpack-claude-skills --skill gather-context
 ```
 
-Manual fallback (always works): `cp -r skills/gather-context ~/.claude/skills/`.
+Manual fallback (always works): `cp -r skills/review/gather-context ~/.claude/skills/`.
 
 Either way, the Step 0 bootstrap above handles installing the bundled `visualize-*`
 subagents to `~/.claude/agents/` the first time step 7 needs them — no separate setup
