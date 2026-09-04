@@ -1,8 +1,8 @@
 # snowpack-claude-skills
 
 Reusable Claude Code skills for Snowpack. Follows the [Agent Skills](https://agentskills.io/)
-format used by [skills.sh](https://www.skills.sh/) — every skill lives under `skills/{name}/`
-with a `SKILL.md` — so standard skills here are installable with:
+format used by [skills.sh](https://www.skills.sh/) — every skill has a `SKILL.md` — so
+skills here are installable with:
 
 ```bash
 npx skills add snowpackdata/snowpack-claude-skills --skill {skill-name}
@@ -14,9 +14,37 @@ skills' `SKILL.md` self-installs its subagents to the global `~/.claude/agents/`
 first step, so `npx skills add` still works normally. See each skill's own `SKILL.md`
 for specifics, and [`AGENTS.md`](./AGENTS.md) for the structural conventions.
 
-## Skills
+## Skill tiers
 
-| Skill | Description | Install |
+A skill's tier is decided entirely by which folder it's in — there's no separate
+`status:` field to keep in sync. See the
+[Publishing & Maintaining Skills](https://app.notion.com/p/3d1d5d2202f98135847ae91710530c20)
+doc for the full framework and rationale; `AGENTS.md` and this README reflect what it's
+enforced into.
+
+| Folder | Tier | What it means |
 |---|---|---|
-| [`time-logger`](./skills/time-logger) | Assembles a combined daily context file (Slack, Calendar, Claude sessions, GitHub, Granola sections + a draft Potential Time Entries section) for a downstream agent to log against the real time-logging system. | `npx skills add snowpackdata/snowpack-claude-skills --skill time-logger` — see its [`SKILL.md`](./skills/time-logger/SKILL.md) |
-| [`gather-context`](./skills/gather-context) | Systematic context-gathering for an unfamiliar operational pipeline: parses declared artifacts (dbt/Airflow), backward-traces consumer dependencies to catch externalized/invisible ones, and surfaces tribal/motivational/ownership gaps as a confirm-or-correct list instead of an open-ended interview. | `npx skills add snowpackdata/snowpack-claude-skills --skill gather-context` — see its [`SKILL.md`](./skills/gather-context/SKILL.md) |
+| `wip/{name}` branch (never merged here) | In Development | Pushed for teammates to test; not shown in this tree at all. |
+| `skills/{name}/` | Not yet promoted | Name + description only — no other requirement. |
+| `skills/review/{name}/` | Ready for Review | Listed below; `notes:` optional. |
+| `skills/production/{name}/` | Production Ready | Listed below; requires a named `owner:`, enforced via [`CODEOWNERS`](./.github/CODEOWNERS). |
+| `archive/{name}/` | Archived | Retired, outside `skills/` entirely, invisible to the installer. |
+
+The two tables below are generated from each skill's `SKILL.md` frontmatter — run
+`node scripts/build-readme.mjs` after adding, moving, or editing a skill, and commit the
+result. CI (`node scripts/build-readme.mjs --check`) fails the PR if it's out of date.
+
+## Production Ready
+
+<!-- SKILLS-TABLE:PRODUCTION:START -->
+_No skills are Production Ready yet._
+<!-- SKILLS-TABLE:PRODUCTION:END -->
+
+## Ready for Review
+
+<!-- SKILLS-TABLE:REVIEW:START -->
+| Skill | Description | Notes |
+|---|---|---|
+| [`gather-context`](./skills/review/gather-context) | Run systematic context-gathering against an operational pipeline or process — parse declared artifacts, backward-trace consumer dependencies, surface tribal/motivational/ownership gaps as a confirm-or-correct list, and produce a provenance-annotated diagram by default (an execution-order ERD, or a business-category taxonomy view when that's the real question being asked). Triggers on "gather pipeline context", "map this pipeline", "what's declared vs. tribal here", "run the context taxonomy on this repo", "trace how this business logic/taxonomy is implemented across these models", or when onboarding onto an unfamiliar client pipeline. | Moved here from skills/gather-context/ under the new tiering. Not yet confirmed by a second user — promote to skills/production/ once someone besides the author has used it successfully and an owner is named. |
+| [`time-logger`](./skills/review/time-logger) | Assembles a combined daily context file (raw sections from Slack, Google Calendar, Claude Code sessions, GitHub, Granola, plus a draft Potential Time Entries section) for a downstream agent to review and log against the real time-logging system. Use when the user wants to log time, generate a time entry, run setup for time-logger, prefetch a day's activity, or asks "what did I work on [date]". | Moved here from skills/time-logger/ under the new tiering. Not yet confirmed by a second user — promote to skills/production/ once someone besides the author has used it successfully and an owner is named. |
+<!-- SKILLS-TABLE:REVIEW:END -->
