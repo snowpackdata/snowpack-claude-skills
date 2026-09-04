@@ -92,7 +92,7 @@ notes: {free text}    # review tier only, optional
 
 ## How It Works / Usage / Output / Troubleshooting
 
-{As needed — see skills/review/time-logger/SKILL.md for a real example.}
+{As needed — see skills/production/time-logger/SKILL.md for a real example.}
 ```
 
 ### End-User Installation
@@ -124,7 +124,7 @@ subagent wiring unless the skill fixes it itself. Two options:
    global `~/.claude/agents/`) and, if not, locates its own installed location
    (`~/.claude/skills/{name}` or `.claude/skills/{name}`) and copies
    `.claude/agents/*.md` into the global `~/.claude/agents/`. This makes the skill
-   genuinely `npx skills add`-compatible. See `skills/review/time-logger/SKILL.md`'s
+   genuinely `npx skills add`-compatible. See `skills/production/time-logger/SKILL.md`'s
    "Step 0 — Bootstrap" for a working example, including a fixed output location (not
    relative to whatever project happens to be open) so the skill behaves the same
    regardless of install method.
