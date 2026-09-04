@@ -157,3 +157,90 @@ is relevant.
 - `node scripts/build-codeowners.mjs` — regenerates `.github/CODEOWNERS` from each
   production skill's `owner:` field. No-ops cleanly if there are no production skills
   yet.
+
+## Workflows
+
+Four common operations. All assume `gh` CLI access and a local clone. See the
+[Publishing & Maintaining Skills](https://app.notion.com/p/3d1d5d2202f98135847ae91710530c20)
+doc for the full rationale and tester/owner expectations at each tier — this is just the
+mechanics.
+
+### 1. Publish a new skill (In Development)
+
+No PR — In Development stays off `main` entirely.
+
+```bash
+git checkout main && git pull
+git checkout -b wip/{skill-name}
+mkdir -p skills/{skill-name}
+cat > skills/{skill-name}/SKILL.md <<'EOF'
+---
+name: {skill-name}
+description: One sentence describing when to use this skill. Include trigger phrases.
+---
+
+# {Skill Title}
+
+🧪 In Development — rough, expect breakage. What it does, how to use it.
+EOF
+git add skills/{skill-name}
+git commit -m "wip: {skill-name}"
+git push -u origin wip/{skill-name}
+```
+
+Tell teammates directly (Slack, not a PR) that the branch exists and what to try.
+
+### 2. Promote In Development → Ready for Review
+
+Continue on the same `wip/{skill-name}` branch:
+
+```bash
+git checkout wip/{skill-name}
+git mv skills/{skill-name} skills/review/{skill-name}
+# optionally add notes: to SKILL.md's frontmatter — blank is fine
+node scripts/build-readme.mjs
+node scripts/validate-skills.mjs   # should exit 0 before you push
+git add -A
+git commit -m "Promote {skill-name}: In Development -> Ready for Review"
+git push -u origin wip/{skill-name}
+gh pr create --base main --head wip/{skill-name}
+```
+
+`gh pr create` opens pre-filled from `.github/pull_request_template.md`. CI
+(`validate-skills.yml`) must pass; get at least one teammate to skim the PR — not a
+blocking approval at this tier.
+
+### 3. Archive a skill
+
+```bash
+git checkout main && git pull
+git checkout -b archive-{skill-name}
+git mv skills/review/{skill-name} archive/{skill-name}
+# or: git mv skills/production/{skill-name} archive/{skill-name}
+node scripts/build-readme.mjs        # drops it from whichever table it was in
+node scripts/build-codeowners.mjs    # drops its CODEOWNERS line, if it had one
+git add -A
+git commit -m "Archive {skill-name}: no longer maintained"
+git push -u origin archive-{skill-name}
+gh pr create --base main
+```
+
+`archive/{name}/` sits outside `skills/` entirely, so the skill disappears from both
+README tables and from `npx skills add` the moment this merges. Say why in the PR
+description.
+
+### 4. Maintain a published skill
+
+- **Edit content**: change the files, keep `SKILL.md` frontmatter accurate, regenerate
+  the README if the description changed (`node scripts/build-readme.mjs`), push to a
+  PR. Editing a Production Ready skill requires the named `owner:`'s review once branch
+  protection's Code Owners rule is turned on.
+- **Reassign an owner**: edit `owner:` in `SKILL.md`, run
+  `node scripts/build-codeowners.mjs`, and commit the regenerated
+  `.github/CODEOWNERS` — the new owner's review isn't enforced until that merges.
+- **Promote Ready for Review → Production Ready**: confirm someone besides the author
+  has used it successfully and is willing to be named, then `git mv
+  skills/review/{name} skills/production/{name}`, add `owner: @handle` to frontmatter,
+  run both generator scripts, open a PR.
+- **Rename**: `git mv` the directory, update `name:` in frontmatter, regenerate the
+  README.
