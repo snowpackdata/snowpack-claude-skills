@@ -26,4 +26,4 @@ jobs:
       - name: Check CODEOWNERS is up to date
         run: |
           node scripts/build-codeowners.mjs
-          git diff --exit-code .github/CODEOWNERS
+          git diff --exit-code -- .github/CODEOWNERS
