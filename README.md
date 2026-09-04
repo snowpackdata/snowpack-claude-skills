@@ -26,8 +26,8 @@ enforced into.
 |---|---|---|
 | `wip/{name}` branch (never merged here) | In Development | Pushed for teammates to test; not shown in this tree at all. |
 | `skills/{name}/` | Not yet promoted | Name + description only — no other requirement. |
-| `skills/review/{name}/` | Ready for Review | Listed below; `notes:` optional. |
-| `skills/production/{name}/` | Production Ready | Listed below; requires a named `owner:`, enforced via [`CODEOWNERS`](./.github/CODEOWNERS). |
+| `skills/review/{name}/` | Ready for Review | Listed below; requires `summary:` (≤140 chars); `notes:` optional. |
+| `skills/production/{name}/` | Production Ready | Listed below; requires `summary:` (≤140 chars) and a named `owner:`, enforced via [`CODEOWNERS`](./.github/CODEOWNERS). |
 | `archive/{name}/` | Archived | Retired, outside `skills/` entirely, invisible to the installer. |
 
 `node scripts/build-readme.mjs` generates the two tables below from each skill's
@@ -40,7 +40,7 @@ date.
 <!-- SKILLS-TABLE:PRODUCTION:START -->
 | Skill | Description | Owner |
 |---|---|---|
-| [`time-logger`](./skills/production/time-logger) | Assembles a combined daily context file (raw sections from Slack, Google Calendar, Claude Code sessions, GitHub, Granola, plus a draft Potential Time Entries section) for a downstream agent to review and log against the real time-logging system. Use when the user wants to log time, generate a time entry, run setup for time-logger, prefetch a day's activity, or asks "what did I work on [date]". | @jarellano01 |
+| [`time-logger`](./skills/production/time-logger) | Builds a daily work-activity file from Slack, Calendar, GitHub, Claude sessions, and Granola. Use to log time or recall a day's work. | @jarellano01 |
 <!-- SKILLS-TABLE:PRODUCTION:END -->
 
 ## Ready for Review
@@ -48,6 +48,6 @@ date.
 <!-- SKILLS-TABLE:REVIEW:START -->
 | Skill | Description | Notes |
 |---|---|---|
-| [`gather-context`](./skills/review/gather-context) | Run systematic context-gathering against an operational pipeline or process — parse declared artifacts, backward-trace consumer dependencies, surface tribal/motivational/ownership gaps as a confirm-or-correct list, and produce a provenance-annotated diagram by default (an execution-order ERD, or a business-category taxonomy view when that's the real question being asked). Triggers on "gather pipeline context", "map this pipeline", "what's declared vs. tribal here", "run the context taxonomy on this repo", "trace how this business logic/taxonomy is implemented across these models", or when onboarding onto an unfamiliar client pipeline. | Owner @auwng. Ready for a second tester — promote to skills/production/ once someone besides the author has used it successfully. |
-| [`plain-style`](./skills/review/plain-style) | Revise drafted text to eliminate passive voice, filler words, redundant phrases, throat-clearing openers, vague language, comma-strung fragments, fragmented outlines standing in for real paragraphs, and em dashes -- replacing each with direct, specific, flowing prose. Returns only the revised text, never a changelog of what was edited. Bundles a reusable `apply-style-guide` subagent other skills can dispatch to as a final drafting step, before their own output is considered finished. Triggers on "clean up the style of this", "make this more direct", "cut the filler from this", "apply the style guide", or when another skill's own instructions call for a style-enforcement pass before finalizing output. | Owner @auwng. Ready for a second tester — promote to skills/production/ once someone besides the author has used it successfully. |
+| [`gather-context`](./skills/review/gather-context) | Systematically maps an unfamiliar pipeline's declared and tribal context. Use when onboarding onto or auditing a client pipeline. | Owner @auwng. Ready for a second tester — promote to skills/production/ once someone besides the author has used it successfully. |
+| [`plain-style`](./skills/review/plain-style) | Revises drafted prose to be direct, active, and free of filler. Use to tighten writing before it ships. | Owner @auwng. Ready for a second tester — promote to skills/production/ once someone besides the author has used it successfully. |
 <!-- SKILLS-TABLE:REVIEW:END -->

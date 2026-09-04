@@ -5,6 +5,11 @@
 // build-codeowners.mjs, so there's exactly one source of truth instead of a
 // table someone has to remember to hand-edit.
 //
+// The Description column pulls from `summary`, not `description` -- `description`
+// stays long and trigger-phrase-rich for Claude Code's own skill-activation matching,
+// while `summary` is a separate field validate-skills.mjs caps at 140 characters
+// specifically so this table stays scannable.
+//
 // Only the content between each pair of markers is touched:
 //   <!-- SKILLS-TABLE:PRODUCTION:START --> ... <!-- SKILLS-TABLE:PRODUCTION:END -->
 //   <!-- SKILLS-TABLE:REVIEW:START -->     ... <!-- SKILLS-TABLE:REVIEW:END -->
@@ -51,9 +56,12 @@ function buildProductionTable(skills) {
   if (!skills.length) return "_No skills are Production Ready yet._";
   const rows = skills.map(({ name, path, fm }) => {
     const link = `[\`${name}\`](./${path})`;
-    const desc = escapeCell(fm.description);
+    // `summary`, not `description` -- description stays long and trigger-phrase-rich
+    // for Claude Code's own skill-activation matching; summary is what's enforced
+    // short (validate-skills.mjs) specifically so this table stays scannable.
+    const summary = escapeCell(fm.summary) || "_missing summary_";
     const owner = escapeCell(fm.owner) || "_missing owner_";
-    return `| ${link} | ${desc} | ${owner} |`;
+    return `| ${link} | ${summary} | ${owner} |`;
   });
   return ["| Skill | Description | Owner |", "|---|---|---|", ...rows].join("\n");
 }
@@ -62,9 +70,9 @@ function buildReviewTable(skills) {
   if (!skills.length) return "_No skills are Ready for Review yet._";
   const rows = skills.map(({ name, path, fm }) => {
     const link = `[\`${name}\`](./${path})`;
-    const desc = escapeCell(fm.description);
+    const summary = escapeCell(fm.summary) || "_missing summary_";
     const notes = escapeCell(fm.notes);
-    return `| ${link} | ${desc} | ${notes} |`;
+    return `| ${link} | ${summary} | ${notes} |`;
   });
   return ["| Skill | Description | Notes |", "|---|---|---|", ...rows].join("\n");
 }

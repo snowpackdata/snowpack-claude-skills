@@ -61,6 +61,18 @@ description: {One sentence describing when to use this skill. Include trigger ph
 ---
 ```
 
+Additionally, for a skill in `skills/review/` or `skills/production/`:
+
+```yaml
+summary: {One sentence, ≤140 characters: what it does and when to use it}
+```
+
+`summary:` is what the README table shows — deliberately separate from `description:`,
+which stays long and trigger-phrase-rich for Claude Code's own skill-activation
+matching. `scripts/validate-skills.mjs` enforces the 140-character cap so the README
+stays scannable instead of every row wrapping to five lines; keep it to the same shape
+as the two example skills below, not a compressed version of `description:`.
+
 Additionally, for a skill in `skills/production/`:
 
 ```yaml
@@ -82,6 +94,7 @@ Full `SKILL.md` shape:
 ---
 name: {skill-name}
 description: {One sentence describing when to use this skill. Include trigger phrases.}
+summary: {One sentence, ≤140 characters}   # review/production tier only
 owner: {@handle}      # production tier only
 notes: {free text}    # review tier only, optional
 ---
@@ -197,7 +210,8 @@ Continue on the same `wip/{skill-name}` branch:
 ```bash
 git checkout wip/{skill-name}
 git mv skills/{skill-name} skills/review/{skill-name}
-# optionally add notes: to SKILL.md's frontmatter — blank is fine
+# add summary: to SKILL.md's frontmatter (required, ≤140 chars — what it does and when to use it)
+# optionally add notes: too — blank is fine
 node scripts/build-readme.mjs
 node scripts/validate-skills.mjs   # should exit 0 before you push
 git add -A
