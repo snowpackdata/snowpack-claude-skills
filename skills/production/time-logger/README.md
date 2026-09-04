@@ -43,20 +43,20 @@ installing globally:
 
 ```bash
 git clone https://github.com/snowpackdata/snowpack-claude-skills.git
-cd snowpack-claude-skills/skills/time-logger
+cd snowpack-claude-skills/skills/production/time-logger
 ./setup.sh
 ```
 
 Either way, say **"setup"** afterward (from any project, if installed via `npx`; from
-`skills/time-logger` itself, if cloned manually) — it probes which integrations are
+`skills/production/time-logger` itself, if cloned manually) — it probes which integrations are
 actually available on your machine (Claude sessions locally, `gh auth status` for
 GitHub, and whether the Slack / Google Calendar / Granola MCP connectors are reachable),
 asks which ones to enable, and writes the results to `~/repos/time_logs/capabilities.yml`.
 
 ## Usage
 
-Say to Claude Code, from any project (or with `skills/time-logger` open directly, if you
-cloned it manually):
+Say to Claude Code, from any project (or with `skills/production/time-logger` open
+directly, if you cloned it manually):
 
 - **"setup"** / **"configure"** — run or re-run the integration setup flow above.
 - **"prefetch [date]"** — fetch raw data for a date from every enabled integration.

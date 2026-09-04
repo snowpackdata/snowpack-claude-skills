@@ -1,6 +1,7 @@
 ---
 name: time-logger
 description: Assembles a combined daily context file (raw sections from Slack, Google Calendar, Claude Code sessions, GitHub, Granola, plus a draft Potential Time Entries section) for a downstream agent to review and log against the real time-logging system. Use when the user wants to log time, generate a time entry, run setup for time-logger, prefetch a day's activity, or asks "what did I work on [date]".
+owner: @jarellano01
 ---
 
 # time-logger
@@ -47,8 +48,8 @@ if [ -n "$SKILL_DIR" ] && [ ! -f ~/repos/time_logs/user-preferences.md ]; then
 fi
 ```
 
-If you cloned this repo directly and opened `skills/time-logger` itself as the project
-root, `$SKILL_DIR` won't match either candidate (it's not installed as a skill) — its own
+If you cloned this repo directly and opened `skills/production/time-logger` itself as
+the project root, `$SKILL_DIR` won't match either candidate (it's not installed as a skill) — its own
 `.claude/agents/` already works natively via normal per-project discovery, so the
 subagent-copy step is skipped safely; only the directory/config bootstrap still applies.
 
@@ -91,6 +92,6 @@ inside the repo directly:
 
 ```bash
 git clone https://github.com/snowpackdata/snowpack-claude-skills.git
-cd snowpack-claude-skills/skills/time-logger
+cd snowpack-claude-skills/skills/production/time-logger
 ./setup.sh
 ```

@@ -20,7 +20,7 @@ project) or just the current one -- global is the usual choice for a general-pur
 like this. Manual fallback, works regardless of install method:
 
 ```bash
-cp -r skills/plain-style ~/.claude/skills/
+cp -r skills/review/plain-style ~/.claude/skills/
 ```
 
 ## Usage

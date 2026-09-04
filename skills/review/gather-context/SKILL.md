@@ -1,6 +1,8 @@
 ---
 name: gather-context
 description: Run systematic context-gathering against an operational pipeline or process — parse declared artifacts, backward-trace consumer dependencies, surface tribal/motivational/ownership gaps as a confirm-or-correct list, and produce a provenance-annotated diagram by default (an execution-order ERD, or a business-category taxonomy view when that's the real question being asked). Triggers on "gather pipeline context", "map this pipeline", "what's declared vs. tribal here", "run the context taxonomy on this repo", "trace how this business logic/taxonomy is implemented across these models", or when onboarding onto an unfamiliar client pipeline.
+owner: @auwng
+notes: Owner @auwng. Ready for a second tester — promote to skills/production/ once someone besides the author has used it successfully.
 ---
 
 # Gather Context
@@ -29,7 +31,7 @@ for candidate in ~/.claude/skills/gather-context .claude/skills/gather-context; 
   fi
 done
 SCAN="${SKILL_DIR:+$SKILL_DIR/}scripts/scan.py"
-[ -z "$SKILL_DIR" ] && SCAN="scripts/scan.py"  # direct clone, running from skills/gather-context/ itself
+[ -z "$SKILL_DIR" ] && SCAN="scripts/scan.py"  # direct clone, running from skills/review/gather-context/ itself
 ```
 
 Use `"$SCAN"` in place of `scripts/scan.py` in every invocation below.
@@ -48,8 +50,8 @@ if [ -n "$SKILL_DIR" ] && [ ! -f ~/.claude/agents/visualize-erd.md ] && [ ! -f .
 fi
 ```
 
-If `$SKILL_DIR` is empty (a direct clone, running from `skills/gather-context/` itself),
-its own `.claude/agents/` is already project-local and discovered normally — skip this
+If `$SKILL_DIR` is empty (a direct clone, running from `skills/review/gather-context/`
+itself), its own `.claude/agents/` is already project-local and discovered normally — skip this
 copy.
 
 **Known limitation, confirmed in testing:** installing these files does not make them
@@ -494,7 +496,7 @@ references/frameworks/" or "none">
 npx skills add snowpackdata/snowpack-claude-skills --skill gather-context
 ```
 
-Manual fallback (always works): `cp -r skills/gather-context ~/.claude/skills/`.
+Manual fallback (always works): `cp -r skills/review/gather-context ~/.claude/skills/`.
 
 Either way, the Step 0 bootstrap above handles installing the bundled `visualize-*`
 subagents to `~/.claude/agents/` the first time step 7 needs them — no separate setup
