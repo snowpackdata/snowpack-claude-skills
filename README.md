@@ -1,25 +1,25 @@
 # snowpack-claude-skills
 
-Reusable Claude Code skills for Snowpack. Follows the [Agent Skills](https://agentskills.io/)
-format used by [skills.sh](https://www.skills.sh/) — every skill has a `SKILL.md` — so
+This repository contains reusable Claude Code skills for Snowpack. It follows the [Agent Skills](https://agentskills.io/)
+format used by [skills.sh](https://www.skills.sh/): every skill has a `SKILL.md`, so
 skills here are installable with:
 
 ```bash
 npx skills add snowpackdata/snowpack-claude-skills --skill {skill-name}
 ```
 
-Some skills bundle Claude Code subagents (`.claude/agents/*.md`), which aren't
-discoverable by Claude Code while nested inside an installed skill folder — those
+Some skills bundle Claude Code subagents (`.claude/agents/*.md`), which Claude Code
+can't discover while they sit nested inside an installed skill folder. Those
 skills' `SKILL.md` self-installs its subagents to the global `~/.claude/agents/` as a
 first step, so `npx skills add` still works normally. See each skill's own `SKILL.md`
 for specifics, and [`AGENTS.md`](./AGENTS.md) for the structural conventions.
 
 ## Skill tiers
 
-A skill's tier is decided entirely by which folder it's in — there's no separate
+The folder a skill lives in decides its tier entirely. There's no separate
 `status:` field to keep in sync. See the
 [Publishing & Maintaining Skills](https://app.notion.com/p/3d1d5d2202f98135847ae91710530c20)
-doc for the full framework and rationale; `AGENTS.md` and this README reflect what it's
+doc for the full framework and rationale. `AGENTS.md` and this README reflect what it's
 enforced into.
 
 | Folder | Tier | What it means |
@@ -30,9 +30,10 @@ enforced into.
 | `skills/production/{name}/` | Production Ready | Listed below; requires a named `owner:`, enforced via [`CODEOWNERS`](./.github/CODEOWNERS). |
 | `archive/{name}/` | Archived | Retired, outside `skills/` entirely, invisible to the installer. |
 
-The two tables below are generated from each skill's `SKILL.md` frontmatter — run
-`node scripts/build-readme.mjs` after adding, moving, or editing a skill, and commit the
-result. CI (`node scripts/build-readme.mjs --check`) fails the PR if it's out of date.
+`node scripts/build-readme.mjs` generates the two tables below from each skill's
+`SKILL.md` frontmatter. Run it after adding, moving, or editing a skill, and commit
+the result. CI (`node scripts/build-readme.mjs --check`) fails the PR if it's out of
+date.
 
 ## Production Ready
 
