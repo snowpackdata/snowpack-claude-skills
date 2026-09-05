@@ -2,6 +2,7 @@
 name: time-logger
 description: Assembles a combined daily context file (raw sections from Slack, Google Calendar, Claude Code sessions, GitHub, Granola, plus a draft Potential Time Entries section) for a downstream agent to review and log against the real time-logging system. Use when the user wants to log time, generate a time entry, run setup for time-logger, prefetch a day's activity, or asks "what did I work on [date]".
 owner: @jarellano01
+summary: Builds a daily work-activity file from Slack, Calendar, GitHub, Claude sessions, and Granola. Use to log time or recall a day's work.
 ---
 
 # time-logger

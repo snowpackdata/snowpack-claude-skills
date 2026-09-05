@@ -2,6 +2,7 @@
 name: plain-style
 description: Revise drafted text to eliminate passive voice, filler words, redundant phrases, throat-clearing openers, vague language, comma-strung fragments, fragmented outlines standing in for real paragraphs, and em dashes -- replacing each with direct, specific, flowing prose. Returns only the revised text, never a changelog of what was edited. Bundles a reusable `apply-style-guide` subagent other skills can dispatch to as a final drafting step, before their own output is considered finished. Triggers on "clean up the style of this", "make this more direct", "cut the filler from this", "apply the style guide", or when another skill's own instructions call for a style-enforcement pass before finalizing output.
 owner: @auwng
+summary: Revises drafted prose to be direct, active, and free of filler. Use to tighten writing before it ships.
 notes: Owner @auwng. Ready for a second tester — promote to skills/production/ once someone besides the author has used it successfully.
 ---
 

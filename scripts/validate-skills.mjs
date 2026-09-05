@@ -5,10 +5,10 @@
 // of truth instead of a field that could drift out of sync with reality.
 //
 // Layout checked:
-//   skills/production/{name}/SKILL.md  -> production tier
-//   skills/review/{name}/SKILL.md      -> review tier
+//   skills/production/{name}/SKILL.md  -> production tier (also needs owner + summary)
+//   skills/review/{name}/SKILL.md      -> review tier (also needs summary)
 //   skills/{name}/SKILL.md             -> not yet promoted (name+description
-//                                          only; no README/owner requirement)
+//                                          only; no README/owner/summary requirement)
 //   archive/**                          -> not checked at all
 //
 // Run: node scripts/validate-skills.mjs
@@ -17,6 +17,7 @@ import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 const SKILLS_DIR = "skills";
+const SUMMARY_MAX_LENGTH = 140;
 
 function parseFrontmatter(text) {
   const match = text.match(/^---\n([\s\S]*?)\n---/);
@@ -74,6 +75,18 @@ function main() {
 
     if (tier === "production" && !fm.owner) {
       errors.push(`${path}: production skills need an "owner" in frontmatter`);
+    }
+
+    if (tier === "production" || tier === "review") {
+      // `summary` is what the README table shows -- deliberately separate from
+      // `description`, which stays long and trigger-phrase-rich for Claude Code's own
+      // skill-activation matching. Enforcing a hard length cap here is what keeps the
+      // README scannable instead of every row wrapping to five lines.
+      if (!fm.summary) {
+        errors.push(`${path}: ${tier} skills need a "summary" in frontmatter (shown in the README table -- keep it to what it does and when to use it)`);
+      } else if (fm.summary.length > SUMMARY_MAX_LENGTH) {
+        errors.push(`${path}: "summary" is ${fm.summary.length} characters, over the ${SUMMARY_MAX_LENGTH}-character limit -- trim it to what it does and when to use it`);
+      }
     }
     if ((tier === "production" || tier === "review") && !readme.includes(`skills/${tier}/${name}`)) {
       errors.push(`${path}: not linked from README.md (expected a link to skills/${tier}/${name})`);
